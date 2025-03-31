@@ -481,7 +481,7 @@ impl MemPoolTxMetadata {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 pub enum MemPoolWalkTxTypes {
     TokenTransfer,
     SmartContract,

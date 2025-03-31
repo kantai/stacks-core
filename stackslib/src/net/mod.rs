@@ -1336,7 +1336,7 @@ impl PartialEq for DropNeighbor {
 }
 
 /// neighbor identifier
-#[derive(Clone, Eq, PartialOrd, Ord)]
+#[derive(Clone, Eq, PartialOrd, Ord, Deserialize)]
 pub struct NeighborKey {
     pub peer_version: u32,
     pub network_id: u32,
@@ -1422,7 +1422,7 @@ impl NeighborKey {
 }
 
 /// Entry in the neighbor set
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Neighbor {
     pub addr: NeighborKey,
 
