@@ -2829,7 +2829,7 @@ pub struct EventObserverConfigFile {
     pub disable_retries: Option<bool>,
 }
 
-#[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd, Deserialize)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
@@ -2837,7 +2837,7 @@ pub struct EventObserverConfig {
     pub disable_retries: bool,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Deserialize)]
 pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
     AssetEvent(AssetIdentifier),
