@@ -90,7 +90,7 @@ pub struct AttachmentPage {
     pub inventory: Vec<u8>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct AtlasConfig {
     pub contracts: HashSet<QualifiedContractIdentifier>,
     pub attachments_max_size: u32,

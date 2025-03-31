@@ -324,7 +324,7 @@ struct ConnectionOutbox<P: ProtocolFamily> {
     inflight: VecDeque<ReceiverNotify<P>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ConnectionOptions {
     pub inbox_maxlen: usize,
     pub outbox_maxlen: usize,

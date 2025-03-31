@@ -1646,7 +1646,7 @@ impl BurnchainConfigFile {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct NodeConfig {
     pub name: String,
     pub seed: Vec<u8>,
@@ -2106,7 +2106,7 @@ impl NodeConfig {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct MinerConfig {
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
