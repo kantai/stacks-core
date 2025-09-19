@@ -19,6 +19,7 @@ pub mod natives;
 
 use std::collections::BTreeMap;
 
+use clarity_types::errors::analysis::get_arguments_exact;
 use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
@@ -318,8 +319,7 @@ impl FunctionType {
                 Ok(returns.clone())
             }
             FunctionType::UnionArgs(arg_types, return_type) => {
-                check_argument_count(1, args)?;
-                let found_type = &args[0];
+                let [found_type] = get_arguments_exact::<_, 1>(args)?;
                 for expected_type in arg_types.iter() {
                     analysis_typecheck_cost(accounting, expected_type, found_type)?;
                     if expected_type.admits_type(&StacksEpochId::Epoch21, found_type)? {
@@ -332,15 +332,13 @@ impl FunctionType {
                 )
             }
             FunctionType::Binary(left_arg_sig, right_arg_sig, return_sig) => {
-                check_argument_count(2, args)?;
-
-                let found_left_type = &args[0];
-                let found_right_type = &args[1];
+                let [found_left_type, found_right_type] = get_arguments_exact::<_, 2>(args)?;
 
                 check_function_arg_signature(accounting, left_arg_sig, found_left_type)?;
                 check_function_arg_signature(accounting, right_arg_sig, found_right_type)?;
 
                 match return_sig {
+                    #[allow(clippy::indexing_slicing)]
                     FunctionReturnsSignature::TypeOfArgAtPosition(pos) => Ok(args[*pos].clone()),
                     FunctionReturnsSignature::Fixed(return_type) => Ok(return_type.clone()),
                 }
@@ -379,8 +377,7 @@ impl FunctionType {
                 Ok(return_type)
             }
             FunctionType::ArithmeticComparison => {
-                check_argument_count(2, args)?;
-                let (first, second) = (&args[0], &args[1]);
+                let [first, second] = get_arguments_exact::<_, 2>(args)?;
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, second)?;
 
@@ -1183,8 +1180,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     ) -> Result<TypeSignature, CheckError> {
         let mut last_return = None;
         let mut return_failure = Ok(());
-        for ix in 0..args.len() {
-            let type_return = self.type_check(&args[ix], context)?;
+        for (ix, arg) in args.iter().enumerate() {
+            let type_return = self.type_check(arg, context)?;
             if ix + 1 < args.len() {
                 if type_return.is_response_type() {
                     return_failure = Err(CheckErrors::UncheckedIntermediaryResponses);

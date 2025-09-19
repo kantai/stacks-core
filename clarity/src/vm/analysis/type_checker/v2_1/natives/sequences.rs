@@ -14,11 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::iter;
+
+use clarity_types::errors::analysis::{get_arguments_at_least, get_arguments_exact};
 use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
 use crate::vm::analysis::type_checker::v2_1::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, TypeChecker,
+    CheckError, CheckErrors, TypeChecker,
     TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -58,9 +61,9 @@ pub fn check_special_map(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_arguments_at_least(2, args)?;
+    let ([fname_arg, first_arg], rest_arg) = get_arguments_at_least(args)?;
 
-    let function_name = args[0]
+    let function_name = fname_arg
         .match_atom()
         .ok_or(CheckErrors::NonFunctionApplication)?;
     // we will only lookup native or defined functions here.
@@ -72,7 +75,9 @@ pub fn check_special_map(
         args.len(),
     )?;
 
-    let iter = args[1..].iter();
+    // chain together the first map argument and any additionally supplied arguments
+    //  for variadic maps
+    let iter = iter::once(first_arg).chain(rest_arg.iter());
     let mut min_args = u32::MAX;
 
     // use func_type visitor pattern
@@ -164,9 +169,9 @@ pub fn check_special_filter(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(2, args)?;
+    let [fname_arg, iterable_arg] = get_arguments_exact(args)?;
 
-    let function_name = args[0]
+    let function_name = fname_arg
         .match_atom()
         .ok_or(CheckErrors::NonFunctionApplication)?;
     // we will only lookup native or defined functions here.
@@ -174,7 +179,7 @@ pub fn check_special_filter(
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
-    let argument_type = checker.type_check(&args[1], context)?;
+    let argument_type = checker.type_check(iterable_arg, context)?;
 
     {
         let input_type = match argument_type {
@@ -208,9 +213,9 @@ pub fn check_special_fold(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(3, args)?;
+    let [fname_arg, iterable_arg, init_arg] = get_arguments_exact(args)?;
 
-    let function_name = args[0]
+    let function_name = fname_arg
         .match_atom()
         .ok_or(CheckErrors::NonFunctionApplication)?;
     // we will only lookup native or defined functions here.
@@ -218,14 +223,14 @@ pub fn check_special_fold(
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
-    let argument_type = checker.type_check(&args[1], context)?;
+    let argument_type = checker.type_check(iterable_arg, context)?;
 
     let input_type = match argument_type {
         TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()?),
         _ => Err(CheckErrors::ExpectedSequence(Box::new(argument_type))),
     }?;
 
-    let initial_value_type = checker.type_check(&args[2], context)?;
+    let initial_value_type = checker.type_check(init_arg, context)?;
 
     // fold: f(A, B) -> A
     //     where A = initial_value_type
@@ -255,10 +260,10 @@ pub fn check_special_concat(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(2, args)?;
+    let [lhs, rhs] = get_arguments_exact(args)?;
 
-    let lhs_type = checker.type_check(&args[0], context)?;
-    let rhs_type = checker.type_check(&args[1], context)?;
+    let lhs_type = checker.type_check(lhs, context)?;
+    let rhs_type = checker.type_check(rhs, context)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
@@ -320,14 +325,14 @@ pub fn check_special_append(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(2, args)?;
+    let [lhs, rhs] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
-    let lhs_type = checker.type_check(&args[0], context)?;
+    let lhs_type = checker.type_check(lhs, context)?;
     match lhs_type {
         TypeSignature::SequenceType(ListType(lhs_list)) => {
-            let rhs_type = checker.type_check(&args[1], context)?;
+            let rhs_type = checker.type_check(rhs, context)?;
             let (lhs_entry_type, lhs_max_len) = lhs_list.destruct();
 
             analysis_typecheck_cost(checker, &lhs_entry_type, &rhs_type)?;
@@ -352,12 +357,12 @@ pub fn check_special_as_max_len(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(2, args)?;
+    let [input, len_arg] = get_arguments_exact(args)?;
 
-    let expected_len = match args[1].expr {
+    let expected_len = match len_arg.expr {
         SymbolicExpressionType::LiteralValue(Value::UInt(expected_len)) => expected_len,
         _ => {
-            let expected_len_type = checker.type_check(&args[1], context)?;
+            let expected_len_type = checker.type_check(len_arg, context)?;
             return Err(CheckErrors::TypeError(
                 Box::new(TypeSignature::UIntType),
                 Box::new(expected_len_type),
@@ -372,11 +377,11 @@ pub fn check_special_as_max_len(
     )?;
     checker
         .type_map
-        .set_type(&args[1], TypeSignature::UIntType)?;
+        .set_type(len_arg, TypeSignature::UIntType)?;
 
     let expected_len = u32::try_from(expected_len).map_err(|_e| CheckErrors::MaxLengthOverflow)?;
 
-    let sequence = checker.type_check(&args[0], context)?;
+    let sequence = checker.type_check(input, context)?;
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
     match sequence {
@@ -409,9 +414,9 @@ pub fn check_special_len(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(1, args)?;
+    let [input] = get_arguments_exact(args)?;
 
-    let collection_type = checker.type_check(&args[0], context)?;
+    let collection_type = checker.type_check(input, context)?;
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
     match collection_type {
@@ -427,11 +432,11 @@ pub fn check_special_element_at(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(2, args)?;
+    let [input, index] = get_arguments_exact(args)?;
 
-    let _index_type = checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
+    let _index_type = checker.type_check_expects(index, context, &TypeSignature::UIntType)?;
 
-    let collection_type = checker.type_check(&args[0], context)?;
+    let collection_type = checker.type_check(input, context)?;
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
     match collection_type {
@@ -463,17 +468,17 @@ pub fn check_special_index_of(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(2, args)?;
+    let [input, to_find] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
-    let list_type = checker.type_check(&args[0], context)?;
+    let list_type = checker.type_check(input, context)?;
 
     let expected_input_type = match list_type {
         TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()?),
         _ => Err(CheckErrors::ExpectedSequence(Box::new(list_type))),
     }?;
 
-    checker.type_check_expects(&args[1], context, &expected_input_type)?;
+    checker.type_check_expects(to_find, context, &expected_input_type)?;
 
     TypeSignature::new_option(TypeSignature::UIntType).map_err(|e| e.into())
 }
@@ -484,11 +489,11 @@ pub fn check_special_slice(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(3, args)?;
+    let [input, left, right] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
     // Check sequence
-    let seq_type = checker.type_check(&args[0], context)?;
+    let seq_type = checker.type_check(input, context)?;
     let seq = match seq_type {
         TypeSignature::SequenceType(seq) => {
             TypeSignature::new_option(TypeSignature::SequenceType(seq))?
@@ -497,9 +502,9 @@ pub fn check_special_slice(
     };
 
     // Check left position argument
-    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(left, context, &TypeSignature::UIntType)?;
     // Check right position argument
-    checker.type_check_expects(&args[2], context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(right, context, &TypeSignature::UIntType)?;
 
     Ok(seq)
 }
@@ -510,20 +515,20 @@ pub fn check_special_replace_at(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(3, args)?;
+    let [input, index, element] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
     // Check sequence
-    let input_type = checker.type_check(&args[0], context)?;
+    let input_type = checker.type_check(input, context)?;
     let seq_type = match &input_type {
         TypeSignature::SequenceType(seq) => seq,
         _ => return Err(CheckErrors::ExpectedSequence(Box::new(input_type)).into()),
     };
     let unit_seq = seq_type.unit_type()?;
     // Check index argument
-    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(index, context, &TypeSignature::UIntType)?;
     // Check element argument
-    checker.type_check_expects(&args[2], context, &unit_seq)?;
+    checker.type_check_expects(element, context, &unit_seq)?;
 
     let final_type = TypeSignature::new_option(input_type)?;
     Ok(final_type)

@@ -20,6 +20,7 @@ pub mod natives;
 
 use std::collections::BTreeMap;
 
+use clarity_types::errors::analysis::get_arguments_exact;
 use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
@@ -174,8 +175,7 @@ impl FunctionType {
                 Ok(returns.clone())
             }
             FunctionType::UnionArgs(arg_types, return_type) => {
-                check_argument_count(1, args)?;
-                let found_type = &args[0];
+                let [found_type] = get_arguments_exact(args)?;
                 for expected_type in arg_types.iter() {
                     analysis_typecheck_cost(accounting, expected_type, found_type)?;
                     if expected_type.admits_type(&StacksEpochId::Epoch2_05, found_type)? {
@@ -221,8 +221,7 @@ impl FunctionType {
                 Ok(return_type)
             }
             FunctionType::ArithmeticComparison => {
-                check_argument_count(2, args)?;
-                let (first, second) = (&args[0], &args[1]);
+                let [first, second] = get_arguments_exact(args)?;
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, second)?;
 

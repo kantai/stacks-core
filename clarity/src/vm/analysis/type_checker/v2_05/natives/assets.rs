@@ -14,8 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::analysis::get_arguments_exact;
+
 use super::{TypeChecker, TypingContext};
-use crate::vm::analysis::errors::{check_argument_count, CheckError, CheckErrors};
+use crate::vm::analysis::errors::{CheckError, CheckErrors};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::representations::SymbolicExpression;
@@ -26,9 +28,9 @@ pub fn check_special_get_owner(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(2, args)?;
+    let [asset_name, asset_id] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
     let expected_asset_type = checker
         .contract_context
@@ -42,7 +44,7 @@ pub fn check_special_get_owner(
         expected_asset_type.type_size()?,
     )?;
 
-    checker.type_check_expects(&args[1], context, &expected_asset_type)?;
+    checker.type_check_expects(asset_id, context, &expected_asset_type)?;
 
     Ok(TypeSignature::OptionalType(Box::new(
         TypeSignature::PrincipalType,
@@ -54,9 +56,9 @@ pub fn check_special_get_balance(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(2, args)?;
+    let [asset_name, owner] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
     if !checker.contract_context.ft_exists(asset_name) {
         return Err(CheckErrors::NoSuchFT(asset_name.to_string()).into());
@@ -65,7 +67,7 @@ pub fn check_special_get_balance(
     runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
 
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
-    checker.type_check_expects(&args[1], context, &expected_owner_type)?;
+    checker.type_check_expects(owner, context, &expected_owner_type)?;
 
     Ok(TypeSignature::UIntType)
 }
@@ -75,9 +77,9 @@ pub fn check_special_mint_asset(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(3, args)?;
+    let [asset_name, asset_id, owner] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     let expected_asset_type = checker
@@ -92,8 +94,8 @@ pub fn check_special_mint_asset(
         expected_asset_type.type_size()?,
     )?;
 
-    checker.type_check_expects(&args[1], context, &expected_asset_type)?;
-    checker.type_check_expects(&args[2], context, &expected_owner_type)?;
+    checker.type_check_expects(asset_id, context, &expected_asset_type)?;
+    checker.type_check_expects(owner, context, &expected_owner_type)?;
 
     Ok(TypeSignature::ResponseType(Box::new((
         TypeSignature::BoolType,
@@ -106,17 +108,17 @@ pub fn check_special_mint_token(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(3, args)?;
+    let [asset_name, amount, owner] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
     let expected_amount: TypeSignature = TypeSignature::UIntType;
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
 
     runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
 
-    checker.type_check_expects(&args[1], context, &expected_amount)?;
-    checker.type_check_expects(&args[2], context, &expected_owner_type)?;
+    checker.type_check_expects(amount, context, &expected_amount)?;
+    checker.type_check_expects(owner, context, &expected_owner_type)?;
 
     if !checker.contract_context.ft_exists(asset_name) {
         return Err(CheckErrors::NoSuchFT(asset_name.to_string()).into());
@@ -133,9 +135,9 @@ pub fn check_special_transfer_asset(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(4, args)?;
+    let [token_name, asset_id, from, to] = get_arguments_exact(args)?;
 
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let token_name = token_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     let expected_asset_type = checker
@@ -150,9 +152,9 @@ pub fn check_special_transfer_asset(
         expected_asset_type.type_size()?,
     )?;
 
-    checker.type_check_expects(&args[1], context, &expected_asset_type)?;
-    checker.type_check_expects(&args[2], context, &expected_owner_type)?; // owner
-    checker.type_check_expects(&args[3], context, &expected_owner_type)?; // recipient
+    checker.type_check_expects(asset_id, context, &expected_asset_type)?;
+    checker.type_check_expects(from, context, &expected_owner_type)?; // owner
+    checker.type_check_expects(to, context, &expected_owner_type)?; // recipient
 
     Ok(TypeSignature::ResponseType(Box::new((
         TypeSignature::BoolType,
@@ -165,18 +167,18 @@ pub fn check_special_transfer_token(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(4, args)?;
+    let [token_name, amount, from, to] = get_arguments_exact(args)?;
 
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let token_name = token_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
     let expected_amount: TypeSignature = TypeSignature::UIntType;
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
 
     runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
 
-    checker.type_check_expects(&args[1], context, &expected_amount)?;
-    checker.type_check_expects(&args[2], context, &expected_owner_type)?; // owner
-    checker.type_check_expects(&args[3], context, &expected_owner_type)?; // recipient
+    checker.type_check_expects(amount, context, &expected_amount)?;
+    checker.type_check_expects(from, context, &expected_owner_type)?; // owner
+    checker.type_check_expects(to, context, &expected_owner_type)?; // recipient
 
     if !checker.contract_context.ft_exists(token_name) {
         return Err(CheckErrors::NoSuchFT(token_name.to_string()).into());
@@ -193,9 +195,9 @@ pub fn check_special_get_token_supply(
     args: &[SymbolicExpression],
     _context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(1, args)?;
+    let [asset_name] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
     if !checker.contract_context.ft_exists(asset_name) {
         return Err(CheckErrors::NoSuchFT(asset_name.to_string()).into());
@@ -211,9 +213,9 @@ pub fn check_special_burn_asset(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(3, args)?;
+    let [asset_name, asset_id, owner] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     let expected_asset_type = checker
@@ -228,8 +230,8 @@ pub fn check_special_burn_asset(
         expected_asset_type.type_size()?,
     )?;
 
-    checker.type_check_expects(&args[1], context, &expected_asset_type)?;
-    checker.type_check_expects(&args[2], context, &expected_owner_type)?;
+    checker.type_check_expects(asset_id, context, &expected_asset_type)?;
+    checker.type_check_expects(owner, context, &expected_owner_type)?;
 
     Ok(TypeSignature::ResponseType(Box::new((
         TypeSignature::BoolType,
@@ -242,17 +244,17 @@ pub fn check_special_burn_token(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(3, args)?;
+    let [asset_name, amount, owner] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
     let expected_amount: TypeSignature = TypeSignature::UIntType;
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
 
     runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
 
-    checker.type_check_expects(&args[1], context, &expected_amount)?;
-    checker.type_check_expects(&args[2], context, &expected_owner_type)?;
+    checker.type_check_expects(amount, context, &expected_amount)?;
+    checker.type_check_expects(owner, context, &expected_owner_type)?;
 
     if !checker.contract_context.ft_exists(asset_name) {
         return Err(CheckErrors::NoSuchFT(asset_name.to_string()).into());

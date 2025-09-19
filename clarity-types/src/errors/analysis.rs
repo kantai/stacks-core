@@ -446,6 +446,21 @@ impl From<CheckErrors> for String {
     }
 }
 
+/// Check if the supplied arguments are exactly N in length, and if so, return
+///  a fixed array with pointers to the arguments. Otherwise, return an IncorrectArgumentCount
+pub fn get_arguments_exact<T, const N: usize>(args: &[T]) -> Result<&[T; N], CheckErrors> {
+    args.try_into().map_err(|_| CheckErrors::IncorrectArgumentCount(N, args.len()))
+}
+
+/// Check if the supplied arguments are at least N in length, and if so, return
+///  a fixed array of size N with pointers to the arguments and a slice with the excess.
+/// Otherwise, return an IncorrectArgumentCount
+pub fn get_arguments_at_least<T, const N: usize>(args: &[T]) -> Result<(&[T; N], &[T]), CheckErrors> {
+    args
+        .split_first_chunk::<N>()
+        .ok_or_else(|| CheckErrors::RequiresAtLeastArguments(N, args.len()))
+}
+
 pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), CheckErrors> {
     if args.len() != expected {
         Err(CheckErrors::IncorrectArgumentCount(expected, args.len()))

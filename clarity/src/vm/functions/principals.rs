@@ -1,3 +1,4 @@
+use clarity_types::errors::analysis::get_arguments_exact;
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -54,9 +55,9 @@ pub fn special_is_standard(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(1, args)?;
+    let [owner_arg] = get_arguments_exact::<_, 1>(args)?;
     runtime_cost(ClarityCostFunction::IsStandard, env, 0)?;
-    let owner = eval(&args[0], env, context)?;
+    let owner = eval(owner_arg, env, context)?;
 
     let version = if let Value::Principal(ref p) = owner {
         p.version()

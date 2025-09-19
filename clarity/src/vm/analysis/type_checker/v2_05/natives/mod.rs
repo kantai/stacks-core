@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::analysis::{get_arguments_at_least, get_arguments_exact};
 use stacks_common::types::StacksEpochId;
 
 use super::{check_argument_count, check_arguments_at_least, no_type, TypeChecker, TypingContext};
@@ -71,8 +72,8 @@ fn check_special_print(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(1, args)?;
-    checker.type_check(&args[0], context)
+    let [statement] = get_arguments_exact(args)?;
+    checker.type_check(statement, context)
 }
 
 fn check_special_as_contract(
@@ -80,8 +81,8 @@ fn check_special_as_contract(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(1, args)?;
-    checker.type_check(&args[0], context)
+    let [statement] = get_arguments_exact(args)?;
+    checker.type_check(statement, context)
 }
 
 fn check_special_at_block(
@@ -89,9 +90,9 @@ fn check_special_at_block(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(2, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_32)?;
-    checker.type_check(&args[1], context)
+    let [block, statement] = get_arguments_exact(args)?;
+    checker.type_check_expects(block, context, &BUFF_32)?;
+    checker.type_check(statement, context)
 }
 
 fn check_special_begin(
@@ -130,11 +131,10 @@ fn check_special_get(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(2, args)?;
+    let [field, value] = get_arguments_exact(args)?;
 
-    let field_to_get = args[0].match_atom().ok_or(CheckErrors::BadTupleFieldName)?;
-
-    let argument_type = checker.type_check(&args[1], context)?;
+    let field_to_get = field.match_atom().ok_or(CheckErrors::BadTupleFieldName)?;
+    let argument_type = checker.type_check(value, context)?;
 
     if let TypeSignature::TupleType(tuple_type_sig) = argument_type {
         inner_handle_tuple_get(&tuple_type_sig, field_to_get, checker)
@@ -156,15 +156,15 @@ fn check_special_merge(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(2, args)?;
+    let [base_arg, update_arg] = get_arguments_exact(args)?;
 
-    let res = checker.type_check(&args[0], context)?;
+    let res = checker.type_check(base_arg, context)?;
     let mut base = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
         _ => Err(CheckErrors::ExpectedTuple(Box::new(res.clone()))),
     }?;
 
-    let res = checker.type_check(&args[1], context)?;
+    let res = checker.type_check(update_arg, context)?;
     let mut update = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
         _ => Err(CheckErrors::ExpectedTuple(Box::new(res.clone()))),
@@ -219,8 +219,10 @@ fn check_special_let(
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(2, args)?;
+    let ([bindings], rest) = get_arguments_at_least(args)
+        .map_err(|_| CheckErrors::Expects("Checked for at least two arguments, but failed to get at least one argument".into()))?;
 
-    let binding_list = args[0]
+    let binding_list = bindings
         .match_list()
         .ok_or(CheckError::new(CheckErrors::BadLetSyntax))?;
 
@@ -253,7 +255,7 @@ fn check_special_let(
         },
     )?;
 
-    checker.type_check_consecutive_statements(&args[1..args.len()], &out_context)
+    checker.type_check_consecutive_statements(rest, &out_context)
 }
 
 fn check_special_fetch_var(
@@ -261,9 +263,9 @@ fn check_special_fetch_var(
     args: &[SymbolicExpression],
     _context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(1, args)?;
+    let [name_arg] = get_arguments_exact(args)?;
 
-    let var_name = args[0]
+    let var_name = name_arg
         .match_atom()
         .ok_or(CheckError::new(CheckErrors::BadMapName))?;
 
@@ -288,11 +290,11 @@ fn check_special_set_var(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_arguments_at_least(2, args)?;
+    let ([name, value], _rest) = get_arguments_at_least(args)?;
 
-    let var_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
+    let var_name = name.match_atom().ok_or(CheckErrors::BadMapName)?;
 
-    let value_type = checker.type_check(&args[1], context)?;
+    let value_type = checker.type_check(value, context)?;
 
     let expected_value_type = checker
         .contract_context
@@ -325,7 +327,10 @@ fn check_special_equals(
 
     let arg_types = checker.type_check_all(args, context)?;
 
-    let mut arg_type = arg_types[0].clone();
+    let mut arg_type = arg_types
+        .get(0)
+        .ok_or_else(|| CheckErrors::Expects("Should have at least one type arg in equals".into()))?
+        .clone();
     for x_type in arg_types.into_iter() {
         analysis_typecheck_cost(checker, &x_type, &arg_type)?;
         arg_type = TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &x_type, &arg_type)
@@ -340,19 +345,18 @@ fn check_special_if(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(3, args)?;
+    let [condition, rest @ ..] = get_arguments_exact::<_, 3>(args)?;
 
-    checker.type_check_expects(&args[0], context, &TypeSignature::BoolType)?;
+    checker.type_check_expects(condition, context, &TypeSignature::BoolType)?;
 
-    let arg_types = checker.type_check_all(&args[1..], context)?;
+    let [t_branch, f_branch] = checker.type_check_all(rest, context)?
+        .try_into()
+        .map_err(|_| CheckErrors::Expects("Expected two branch arguments in if".into()))?;
 
-    let expr1 = &arg_types[0];
-    let expr2 = &arg_types[1];
+    analysis_typecheck_cost(checker, &t_branch, &f_branch)?;
 
-    analysis_typecheck_cost(checker, expr1, expr2)?;
-
-    TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, expr1, expr2).map_err(|_| {
-        CheckErrors::IfArmsMustMatch(Box::new(expr1.clone()), Box::new(expr2.clone())).into()
+    TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &t_branch, &f_branch).map_err(|_| {
+        CheckErrors::IfArmsMustMatch(Box::new(t_branch), Box::new(f_branch)).into()
     })
 }
 
@@ -361,14 +365,14 @@ fn check_contract_call(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_arguments_at_least(2, args)?;
+    let ([contract, func], function_args) = get_arguments_at_least::<_, 2>(args)?;
 
-    let func_name = args[1]
+    let func_name = func
         .match_atom()
         .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
-    checker.type_map.set_type(&args[1], no_type())?;
+    checker.type_map.set_type(func, no_type())?;
 
-    let expected_sig = match &args[0].expr {
+    let expected_sig = match &contract.expr {
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(
             ref contract_identifier,
         ))) => {
@@ -441,8 +445,8 @@ fn check_contract_call(
         _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName)),
     };
 
-    check_argument_count(expected_sig.args.len(), &args[2..])?;
-    for (expected_type, arg) in expected_sig.args.iter().zip(&args[2..]) {
+    check_argument_count(expected_sig.args.len(), function_args)?;
+    for (expected_type, arg) in expected_sig.args.iter().zip(function_args) {
         checker.type_check_expects(arg, context, expected_type)?;
     }
 
@@ -454,9 +458,9 @@ fn check_contract_of(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(1, args)?;
+    let [arg] = get_arguments_exact(args)?;
 
-    let trait_instance = match &args[0].expr {
+    let trait_instance = match &arg.expr {
         SymbolicExpressionType::Atom(trait_instance) => trait_instance,
         _ => return Err(CheckError::new(CheckErrors::ContractOfExpectsTrait)),
     };
@@ -481,8 +485,8 @@ fn check_principal_of(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(1, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_33)?;
+    let [arg] = get_arguments_exact(args)?;
+    checker.type_check_expects(arg, context, &BUFF_33)?;
     Ok(
         TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType)
             .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
@@ -494,9 +498,9 @@ fn check_secp256k1_recover(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(2, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_32)?;
-    checker.type_check_expects(&args[1], context, &BUFF_65)?;
+    let [hash, sig] = get_arguments_exact::<_, 2>(args)?;
+    checker.type_check_expects(hash, context, &BUFF_32)?;
+    checker.type_check_expects(sig, context, &BUFF_65)?;
     Ok(
         TypeSignature::new_response(BUFF_33.clone(), TypeSignature::UIntType)
             .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
@@ -508,10 +512,10 @@ fn check_secp256k1_verify(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_argument_count(3, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_32)?;
-    checker.type_check_expects(&args[1], context, &BUFF_65)?;
-    checker.type_check_expects(&args[2], context, &BUFF_33)?;
+    let [hash, sig, pk] = get_arguments_exact::<_, 3>(args)?;
+    checker.type_check_expects(hash, context, &BUFF_32)?;
+    checker.type_check_expects(sig, context, &BUFF_65)?;
+    checker.type_check_expects(pk, context, &BUFF_33)?;
     Ok(TypeSignature::BoolType)
 }
 
@@ -520,9 +524,9 @@ fn check_get_block_info(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    check_arguments_at_least(2, args)?;
+    let ([property_arg, height_arg], _rest) = get_arguments_at_least::<_, 2>(args)?;
 
-    let block_info_prop_str = args[0]
+    let block_info_prop_str = property_arg
         .match_atom()
         .ok_or(CheckError::new(CheckErrors::GetBlockInfoExpectPropertyName))?;
 
@@ -534,7 +538,7 @@ fn check_get_block_info(
         block_info_prop_str.to_string(),
     )))?;
 
-    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(height_arg, context, &TypeSignature::UIntType)?;
 
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }

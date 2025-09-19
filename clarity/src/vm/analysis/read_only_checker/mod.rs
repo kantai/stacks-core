@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 
+use clarity_types::errors::analysis::get_arguments_at_least;
 use clarity_types::representations::ClarityName;
 use clarity_types::types::{PrincipalData, Value};
 use stacks_common::types::StacksEpochId;
@@ -326,7 +327,6 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             Let => {
                 check_arguments_at_least(2, args)?;
-
                 let binding_list = args[0].match_list().ok_or(CheckErrors::BadLetSyntax)?;
 
                 for (i, pair) in binding_list.iter().enumerate() {
@@ -336,14 +336,16 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                             pair,
                         )
                     })?;
-                    if pair_expression.len() != 2 {
-                        return Err(CheckError::with_expression(
-                            SyntaxBindingError::let_binding_invalid_length(i).into(),
-                            pair,
-                        ));
-                    }
+                    let [_field_name, field_expr]: &[_; 2] = pair_expression
+                        .try_into()
+                        .map_err(|_| 
+                                 CheckError::with_expression(
+                                     SyntaxBindingError::tuple_cons_invalid_length(i).into(),
+                                     pair,
+                                 )
+                        )?;
 
-                    if !self.check_read_only(&pair_expression[1])? {
+                    if !self.check_read_only(field_expr)? {
                         return Ok(false);
                     }
                 }
@@ -384,27 +386,29 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                             pair,
                         )
                     })?;
-                    if pair_expression.len() != 2 {
-                        return Err(CheckError::with_expression(
-                            SyntaxBindingError::tuple_cons_invalid_length(i).into(),
-                            pair,
-                        ));
-                    }
+                    let [_field_name, field_expr]: &[_; 2] = pair_expression
+                        .try_into()
+                        .map_err(|_| 
+                                 CheckError::with_expression(
+                                     SyntaxBindingError::tuple_cons_invalid_length(i).into(),
+                                     pair,
+                                 )
+                        )?;
 
-                    if !self.check_read_only(&pair_expression[1])? {
+                    if !self.check_read_only(field_expr)? {
                         return Ok(false);
                     }
                 }
                 Ok(true)
             }
             ContractCall => {
-                check_arguments_at_least(2, args)?;
+                let ([contract, function_name], func_args) = get_arguments_at_least(args)?;
 
-                let function_name = args[1]
+                let function_name = function_name
                     .match_atom()
                     .ok_or(CheckErrors::ContractCallExpectName)?;
 
-                let is_function_read_only = match &args[0].expr {
+                let is_function_read_only = match &contract.expr {
                     SymbolicExpressionType::LiteralValue(Value::Principal(
                         PrincipalData::Contract(ref contract_identifier),
                     )) => self
@@ -424,7 +428,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName)),
                 };
 
-                self.check_each_expression_is_read_only(&args[2..])
+                self.check_each_expression_is_read_only(func_args)
                     .map(|args_read_only| args_read_only && is_function_read_only)
             }
         }
