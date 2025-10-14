@@ -219,8 +219,11 @@ fn check_special_let(
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(2, args)?;
-    let ([bindings], rest) = get_arguments_at_least(args)
-        .map_err(|_| CheckErrors::Expects("Checked for at least two arguments, but failed to get at least one argument".into()))?;
+    let ([bindings], rest) = get_arguments_at_least(args).map_err(|_| {
+        CheckErrors::Expects(
+            "Checked for at least two arguments, but failed to get at least one argument".into(),
+        )
+    })?;
 
     let binding_list = bindings
         .match_list()
@@ -349,15 +352,15 @@ fn check_special_if(
 
     checker.type_check_expects(condition, context, &TypeSignature::BoolType)?;
 
-    let [t_branch, f_branch] = checker.type_check_all(rest, context)?
+    let [t_branch, f_branch] = checker
+        .type_check_all(rest, context)?
         .try_into()
         .map_err(|_| CheckErrors::Expects("Expected two branch arguments in if".into()))?;
 
     analysis_typecheck_cost(checker, &t_branch, &f_branch)?;
 
-    TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &t_branch, &f_branch).map_err(|_| {
-        CheckErrors::IfArmsMustMatch(Box::new(t_branch), Box::new(f_branch)).into()
-    })
+    TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &t_branch, &f_branch)
+        .map_err(|_| CheckErrors::IfArmsMustMatch(Box::new(t_branch), Box::new(f_branch)).into())
 }
 
 fn check_contract_call(

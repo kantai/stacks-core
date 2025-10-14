@@ -14,14 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::analysis::get_arguments_exact;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker};
 use crate::vm::database::STXBalance;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
-    RuntimeErrorType,
+    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
@@ -92,11 +92,11 @@ pub fn special_stx_balance(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(1, args)?;
+    let [owner] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::StxBalance, env, 0)?;
 
-    let owner = eval(&args[0], env, context)?;
+    let owner = eval(owner, env, context)?;
 
     if let Value::Principal(ref principal) = owner {
         let balance = {
@@ -163,13 +163,12 @@ pub fn special_stx_transfer(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(3, args)?;
-
+    let [amount, from, to] = get_arguments_exact(args)?;
     runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
 
-    let amount_val = eval(&args[0], env, context)?;
-    let from_val = eval(&args[1], env, context)?;
-    let to_val = eval(&args[2], env, context)?;
+    let amount_val = eval(amount, env, context)?;
+    let from_val = eval(from, env, context)?;
+    let to_val = eval(to, env, context)?;
     let memo_val = Value::Sequence(SequenceData::Buffer(BuffData::empty()));
 
     if let (
@@ -190,13 +189,13 @@ pub fn special_stx_transfer_memo(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(4, args)?;
+    let [amount, from, to, memo] = get_arguments_exact(args)?;
     runtime_cost(ClarityCostFunction::StxTransferMemo, env, 0)?;
 
-    let amount_val = eval(&args[0], env, context)?;
-    let from_val = eval(&args[1], env, context)?;
-    let to_val = eval(&args[2], env, context)?;
-    let memo_val = eval(&args[3], env, context)?;
+    let amount_val = eval(amount, env, context)?;
+    let from_val = eval(from, env, context)?;
+    let to_val = eval(to, env, context)?;
+    let memo_val = eval(memo, env, context)?;
 
     if let (
         Value::Principal(ref from),
@@ -217,11 +216,11 @@ pub fn special_stx_account(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(1, args)?;
+    let [owner] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::StxGetAccount, env, 0)?;
 
-    let owner = eval(&args[0], env, context)?;
+    let owner = eval(owner, env, context)?;
     let principal = if let Value::Principal(p) = owner {
         p
     } else {
@@ -273,12 +272,11 @@ pub fn special_stx_burn(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
-
+    let [amount, from] = get_arguments_exact(args)?;
     runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
 
-    let amount_val = eval(&args[0], env, context)?;
-    let from_val = eval(&args[1], env, context)?;
+    let amount_val = eval(amount, env, context)?;
+    let from_val = eval(from, env, context)?;
 
     if let (Value::Principal(ref from), Value::UInt(amount)) = (&from_val, amount_val) {
         if amount == 0 {
@@ -318,14 +316,12 @@ pub fn special_mint_token(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(3, args)?;
-
+    let [token_name, amount, to] = get_arguments_exact(args)?;
     runtime_cost(ClarityCostFunction::FtMint, env, 0)?;
 
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let amount = eval(&args[1], env, context)?;
-    let to = eval(&args[2], env, context)?;
+    let token_name = token_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let amount = eval(amount, env, context)?;
+    let to = eval(to, env, context)?;
 
     if let (Value::UInt(amount), Value::Principal(ref to_principal)) = (amount, to) {
         if amount == 0 {
@@ -383,12 +379,11 @@ pub fn special_mint_asset_v200(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(3, args)?;
+    let [asset_name, asset, to] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let asset = eval(&args[1], env, context)?;
-    let to = eval(&args[2], env, context)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset = eval(asset, env, context)?;
+    let to = eval(to, env, context)?;
 
     let nft_metadata = env
         .contract_context
@@ -458,12 +453,11 @@ pub fn special_mint_asset_v205(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(3, args)?;
+    let [asset_name, asset, to] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let asset = eval(&args[1], env, context)?;
-    let to = eval(&args[2], env, context)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset = eval(asset, env, context)?;
+    let to = eval(to, env, context)?;
 
     let nft_metadata = env
         .contract_context
@@ -530,13 +524,12 @@ pub fn special_transfer_asset_v200(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(4, args)?;
+    let [asset_name, asset, from, to] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let asset = eval(&args[1], env, context)?;
-    let from = eval(&args[2], env, context)?;
-    let to = eval(&args[3], env, context)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset = eval(asset, env, context)?;
+    let from = eval(from, env, context)?;
+    let to = eval(to, env, context)?;
 
     let nft_metadata = env
         .contract_context
@@ -625,13 +618,12 @@ pub fn special_transfer_asset_v205(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(4, args)?;
+    let [asset_name, asset, from, to] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let asset = eval(&args[1], env, context)?;
-    let from = eval(&args[2], env, context)?;
-    let to = eval(&args[3], env, context)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset = eval(asset, env, context)?;
+    let from = eval(from, env, context)?;
+    let to = eval(to, env, context)?;
 
     let nft_metadata = env
         .contract_context
@@ -717,15 +709,14 @@ pub fn special_transfer_token(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(4, args)?;
-
+    let [token_name, amount, from, to] = get_arguments_exact(args)?;
     runtime_cost(ClarityCostFunction::FtTransfer, env, 0)?;
 
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let token_name = token_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
-    let amount = eval(&args[1], env, context)?;
-    let from = eval(&args[2], env, context)?;
-    let to = eval(&args[3], env, context)?;
+    let amount = eval(amount, env, context)?;
+    let from = eval(from, env, context)?;
+    let to = eval(to, env, context)?;
 
     if let (
         Value::UInt(amount),
@@ -818,13 +809,11 @@ pub fn special_get_balance(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
-
+    let [token_name, owner] = get_arguments_exact(args)?;
     runtime_cost(ClarityCostFunction::FtBalance, env, 0)?;
 
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let owner = eval(&args[1], env, context)?;
+    let token_name = token_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let owner = eval(owner, env, context)?;
 
     if let Value::Principal(ref principal) = owner {
         let ft_info = env
@@ -853,11 +842,10 @@ pub fn special_get_owner_v200(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    let [asset_name, asset] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let asset = eval(&args[1], env, context)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset = eval(asset, env, context)?;
 
     let nft_metadata = env
         .contract_context
@@ -901,11 +889,10 @@ pub fn special_get_owner_v205(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    let [asset_name, asset] = get_arguments_exact(args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let asset = eval(&args[1], env, context)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset = eval(asset, env, context)?;
 
     let nft_metadata = env
         .contract_context
@@ -946,11 +933,11 @@ pub fn special_get_token_supply(
     env: &mut Environment,
     _context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(1, args)?;
+    let [token_name] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::FtSupply, env, 0)?;
 
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let token_name = token_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
     let supply = env
         .global_context
@@ -964,14 +951,14 @@ pub fn special_burn_token(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(3, args)?;
+    let [token_name, amount, from] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::FtBurn, env, 0)?;
 
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let token_name = token_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
-    let amount = eval(&args[1], env, context)?;
-    let from = eval(&args[2], env, context)?;
+    let amount = eval(amount, env, context)?;
+    let from = eval(from, env, context)?;
 
     if let (Value::UInt(amount), Value::Principal(ref burner)) = (amount, from) {
         if amount == 0 {
@@ -1031,14 +1018,13 @@ pub fn special_burn_asset_v200(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(3, args)?;
-
+    let [asset_name, asset, sender] = get_arguments_exact(args)?;
     runtime_cost(ClarityCostFunction::NftBurn, env, 0)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
-    let asset = eval(&args[1], env, context)?;
-    let sender = eval(&args[2], env, context)?;
+    let asset = eval(asset, env, context)?;
+    let sender = eval(sender, env, context)?;
 
     let nft_metadata = env
         .contract_context
@@ -1120,14 +1106,13 @@ pub fn special_burn_asset_v205(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(3, args)?;
-
+    let [asset_name, asset, sender] = get_arguments_exact(args)?;
     runtime_cost(ClarityCostFunction::NftBurn, env, 0)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = asset_name.match_atom().ok_or(CheckErrors::BadTokenName)?;
 
-    let asset = eval(&args[1], env, context)?;
-    let sender = eval(&args[2], env, context)?;
+    let asset = eval(asset, env, context)?;
+    let sender = eval(sender, env, context)?;
 
     let nft_metadata = env
         .contract_context

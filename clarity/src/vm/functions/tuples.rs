@@ -13,11 +13,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::analysis::get_arguments_exact;
+
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
-    InterpreterResult as Result, SyntaxBindingErrorType,
+    check_arguments_at_least, CheckErrors, InterpreterError, InterpreterResult as Result,
+    SyntaxBindingErrorType,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TupleData, TypeSignature, Value};
@@ -47,11 +49,11 @@ pub fn tuple_get(
 ) -> Result<Value> {
     // (get arg-name (tuple ...))
     //    if the tuple argument is an option type, then return option(field-name).
-    check_argument_count(2, args)?;
+    let [arg_name, tup_val] = get_arguments_exact(args)?;
 
-    let arg_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let arg_name = arg_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
-    let value = eval(&args[1], env, context)?;
+    let value = eval(tup_val, env, context)?;
 
     match value {
         Value::Optional(opt_data) => {

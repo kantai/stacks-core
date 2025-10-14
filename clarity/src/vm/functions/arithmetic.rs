@@ -16,13 +16,12 @@
 
 use std::cmp;
 
+use clarity_types::errors::analysis::get_arguments_exact;
 use integer_sqrt::IntegerSquareRoot;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterError, InterpreterResult, RuntimeErrorType,
-};
+use crate::vm::errors::{CheckErrors, InterpreterError, InterpreterResult, RuntimeErrorType};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value,
@@ -230,7 +229,11 @@ macro_rules! make_arithmetic_ops {
                 Self::make_value(result)
             }
             fn bitwise_and(args: &[$type]) -> InterpreterResult<Value> {
-                let first: $type = args[0];
+                let first = args.get(0).copied().ok_or_else(|| {
+                    InterpreterError::Expect(
+                        "Arguments to bitwise_and should have already been checked".into(),
+                    )
+                })?;
                 let result = args
                     .iter()
                     .skip(1)
@@ -388,9 +391,9 @@ fn special_geq_v1(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let [a, b] = get_arguments_exact(args)?;
+    let a = eval(a, env, context)?;
+    let b = eval(b, env, context)?;
     runtime_cost(ClarityCostFunction::Geq, env, args.len())?;
     type_force_binary_comparison_v1!(geq, a, b)
 }
@@ -402,9 +405,9 @@ fn special_geq_v2(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let [a, b] = get_arguments_exact(args)?;
+    let a = eval(a, env, context)?;
+    let b = eval(b, env, context)?;
     runtime_cost(
         ClarityCostFunction::Geq,
         env,
@@ -435,9 +438,9 @@ fn special_leq_v1(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let [a, b] = get_arguments_exact(args)?;
+    let a = eval(a, env, context)?;
+    let b = eval(b, env, context)?;
     runtime_cost(ClarityCostFunction::Leq, env, args.len())?;
     type_force_binary_comparison_v1!(leq, a, b)
 }
@@ -449,9 +452,9 @@ fn special_leq_v2(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let [a, b] = get_arguments_exact(args)?;
+    let a = eval(a, env, context)?;
+    let b = eval(b, env, context)?;
     runtime_cost(
         ClarityCostFunction::Leq,
         env,
@@ -481,9 +484,9 @@ fn special_greater_v1(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let [a, b] = get_arguments_exact(args)?;
+    let a = eval(a, env, context)?;
+    let b = eval(b, env, context)?;
     runtime_cost(ClarityCostFunction::Ge, env, args.len())?;
     type_force_binary_comparison_v1!(greater, a, b)
 }
@@ -495,9 +498,9 @@ fn special_greater_v2(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let [a, b] = get_arguments_exact(args)?;
+    let a = eval(a, env, context)?;
+    let b = eval(b, env, context)?;
     runtime_cost(ClarityCostFunction::Ge, env, cmp::min(a.size()?, b.size()?))?;
     type_force_binary_comparison_v2!(greater, a, b)
 }
@@ -523,9 +526,9 @@ fn special_less_v1(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let [a, b] = get_arguments_exact(args)?;
+    let a = eval(a, env, context)?;
+    let b = eval(b, env, context)?;
     runtime_cost(ClarityCostFunction::Le, env, args.len())?;
     type_force_binary_comparison_v1!(less, a, b)
 }
@@ -537,9 +540,9 @@ fn special_less_v2(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let [a, b] = get_arguments_exact(args)?;
+    let a = eval(a, env, context)?;
+    let b = eval(b, env, context)?;
     runtime_cost(ClarityCostFunction::Le, env, cmp::min(a.size()?, b.size()?))?;
     type_force_binary_comparison_v2!(less, a, b)
 }

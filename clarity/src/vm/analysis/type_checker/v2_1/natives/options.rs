@@ -19,9 +19,7 @@ use clarity_types::representations::ClarityName;
 use clarity_types::types::TypeSignature;
 use stacks_common::types::StacksEpochId;
 
-use super::{
-    no_type, CheckError, CheckErrors, TypeChecker,
-};
+use super::{no_type, CheckError, CheckErrors, TypeChecker};
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTracker};
@@ -322,12 +320,12 @@ fn check_special_match_opt(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    let [bind_arg, some_branch, none_branch] = get_arguments_exact(args)
-        .map_err(|_| {
-            CheckErrors::BadMatchOptionSyntax(Box::new(
-                CheckErrors::IncorrectArgumentCount(4, args.len() + 1),
-            ))
-        })?;
+    let [bind_arg, some_branch, none_branch] = get_arguments_exact(args).map_err(|_| {
+        CheckErrors::BadMatchOptionSyntax(Box::new(CheckErrors::IncorrectArgumentCount(
+            4,
+            args.len() + 1,
+        )))
+    })?;
 
     let bind_name = bind_arg
         .match_atom()
@@ -361,11 +359,12 @@ fn check_special_match_resp(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
-    let [ok_bind_arg, ok_branch, err_bind_arg, err_branch] = get_arguments_exact(args)
-        .map_err(|_| {
-            CheckErrors::BadMatchResponseSyntax(Box::new(
-                CheckErrors::IncorrectArgumentCount(5, args.len() + 1),
-            ))
+    let [ok_bind_arg, ok_branch, err_bind_arg, err_branch] =
+        get_arguments_exact(args).map_err(|_| {
+            CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::IncorrectArgumentCount(
+                5,
+                args.len() + 1,
+            )))
         })?;
 
     let ok_bind_name = ok_bind_arg

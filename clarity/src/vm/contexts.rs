@@ -967,12 +967,12 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         )?
         .expressions;
 
-        if parsed.is_empty() {
+        let Some(expression) = parsed.first() else {
             return Err(RuntimeErrorType::ParseError(
                 "Expected a program of at least length 1".to_string(),
             )
             .into());
-        }
+        };
 
         self.global_context.begin();
 
@@ -995,7 +995,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 self.sponsor.clone(),
             );
             let local_context = LocalContext::new();
-            eval(&parsed[0], &mut nested_env, &local_context)
+            eval(expression, &mut nested_env, &local_context)
         };
 
         self.global_context.roll_back()?;
@@ -1026,14 +1026,14 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         )?
         .expressions;
 
-        if parsed.is_empty() {
+        let Some(expression) = parsed.first() else {
             return Err(RuntimeErrorType::ParseError(
                 "Expected a program of at least length 1".to_string(),
             )
             .into());
-        }
+        };
         let local_context = LocalContext::new();
-        eval(&parsed[0], self, &local_context)
+        eval(expression, self, &local_context)
     }
 
     #[cfg(any(test, feature = "testing"))]

@@ -1,4 +1,4 @@
-use clarity_types::errors::analysis::get_arguments_exact;
+use clarity_types::errors::analysis::{get_arguments_at_least, get_arguments_exact};
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -8,8 +8,7 @@ use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
-    InterpreterError, InterpreterResult as Result,
+    check_arguments_at_most, CheckErrors, InterpreterError, InterpreterResult as Result,
 };
 use crate::vm::representations::{
     SymbolicExpression, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
@@ -155,10 +154,10 @@ pub fn special_principal_destruct(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(1, args)?;
+    let [principal] = get_arguments_exact(args)?;
     runtime_cost(ClarityCostFunction::PrincipalDestruct, env, 0)?;
 
-    let principal = eval(&args[0], env, context)?;
+    let principal = eval(principal, env, context)?;
 
     let (version_byte, hash_bytes, name_opt) = match principal {
         Value::Principal(PrincipalData::Standard(p)) => {
@@ -194,14 +193,14 @@ pub fn special_principal_construct(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_arguments_at_least(2, args)?;
+    let ([version, hash_bytes], rest_args) = get_arguments_at_least(args)?;
     check_arguments_at_most(3, args)?;
     runtime_cost(ClarityCostFunction::PrincipalConstruct, env, 0)?;
 
-    let version = eval(&args[0], env, context)?;
-    let hash_bytes = eval(&args[1], env, context)?;
-    let name_opt = if args.len() > 2 {
-        Some(eval(&args[2], env, context)?)
+    let version = eval(version, env, context)?;
+    let hash_bytes = eval(hash_bytes, env, context)?;
+    let name_opt = if let Some(name) = rest_args.first() {
+        Some(eval(name, env, context)?)
     } else {
         None
     };
@@ -217,17 +216,17 @@ pub fn special_principal_construct(
         }
     };
 
-    let version_byte = if verified_version.len() > 1 {
+    if verified_version.len() > 1 {
         // should have been caught by the type-checker
         return Err(
             CheckErrors::TypeValueError(Box::new(BUFF_1.clone()), Box::new(version)).into(),
         );
-    } else if verified_version.is_empty() {
+    }
+
+    let Some(version_byte) = verified_version.first().copied() else {
         // the type checker does not check the actual length of the buffer, but a 0-length buffer
         // will type-check to (buff 1)
         return create_principal_true_error_response(PrincipalConstructErrorCode::BUFFER_LENGTH);
-    } else {
-        (*verified_version)[0]
     };
 
     // If the version byte is >= 32, this is a runtime error, because it wasn't the job of the

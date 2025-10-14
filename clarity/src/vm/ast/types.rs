@@ -52,10 +52,7 @@ impl ContractAST {
     }
 
     pub fn pre_expressions_drain(&mut self) -> PreExpressionsDrain {
-        let sorting = self
-            .top_level_expression_sorting
-            .as_ref()
-            .map(|exprs_ids| exprs_ids[..].to_vec());
+        let sorting = self.top_level_expression_sorting.clone();
         PreExpressionsDrain::new(self.pre_expressions.drain(..), sorting)
     }
 
@@ -103,6 +100,7 @@ impl PreExpressionsDrain {
 impl Iterator for PreExpressionsDrain {
     type Item = PreSymbolicExpression;
 
+    #[allow(clippy::indexing_slicing)]
     fn next(&mut self) -> Option<PreSymbolicExpression> {
         if self.index >= self.len {
             return None;

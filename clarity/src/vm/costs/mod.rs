@@ -649,7 +649,8 @@ fn load_cost_functions(
                         continue;
                     }
                     if !cost_function_type.args.len() == 1
-                        || cost_function_type.args[0].signature != TypeSignature::UIntType
+                        || cost_function_type.args.get(0).map(|x| &x.signature)
+                            != Some(&TypeSignature::UIntType)
                     {
                         warn!("Confirmed cost proposal invalid: cost-function-name args should be length-1 and only uint";
                               "confirmed_proposal_id" => confirmed_proposal,

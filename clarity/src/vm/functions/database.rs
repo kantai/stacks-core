@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::analysis::{get_arguments_at_least, get_arguments_exact};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
@@ -22,8 +23,8 @@ use crate::vm::callables::DefineType;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
-    InterpreterResult as Result, RuntimeErrorType,
+    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
+    RuntimeErrorType,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
@@ -62,15 +63,14 @@ pub fn special_contract_call(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_arguments_at_least(2, args)?;
+    let ([contract, fname], rest_args_slice) = get_arguments_at_least(args)?;
 
     // the second part of the contract_call cost (i.e., the load contract cost)
     //   is checked in `execute_contract`, and the function _application_ cost
     //   is checked in callables::DefinedFunction::execute_apply.
     runtime_cost(ClarityCostFunction::ContractCall, env, 0)?;
 
-    let function_name = args[1].match_atom().ok_or(CheckErrors::ExpectedName)?;
-    let rest_args_slice = &args[2..];
+    let function_name = fname.match_atom().ok_or(CheckErrors::ExpectedName)?;
     let rest_args_len = rest_args_slice.len();
     let mut rest_args = Vec::with_capacity(rest_args_len);
     let mut rest_args_sizes = Vec::with_capacity(rest_args_len);
@@ -80,7 +80,7 @@ pub fn special_contract_call(
         rest_args.push(SymbolicExpression::atom_value(evaluated_arg));
     }
 
-    let (contract_identifier, type_returns_constraint) = match &args[0].expr {
+    let (contract_identifier, type_returns_constraint) = match &contract.expr {
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(
             ref contract_identifier,
         ))) => {
@@ -226,9 +226,8 @@ pub fn special_fetch_variable_v200(
     env: &mut Environment,
     _context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(1, args)?;
-
-    let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let [var_name] = get_arguments_exact(args)?;
+    let var_name = var_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -257,9 +256,8 @@ pub fn special_fetch_variable_v205(
     env: &mut Environment,
     _context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(1, args)?;
-
-    let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let [var_name] = get_arguments_exact(args)?;
+    let var_name = var_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -294,11 +292,11 @@ pub fn special_set_variable_v200(
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
 
-    check_argument_count(2, args)?;
+    let [var_name, value] = get_arguments_exact(args)?;
 
-    let value = eval(&args[1], env, context)?;
+    let value = eval(value, env, context)?;
 
-    let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let var_name = var_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -334,11 +332,11 @@ pub fn special_set_variable_v205(
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
 
-    check_argument_count(2, args)?;
+    let [var_name, value] = get_arguments_exact(args)?;
 
-    let value = eval(&args[1], env, context)?;
+    let value = eval(value, env, context)?;
 
-    let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let var_name = var_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -371,11 +369,11 @@ pub fn special_fetch_entry_v200(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    let [map_name, key] = get_arguments_exact(args)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = map_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(key, env, context)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -404,11 +402,11 @@ pub fn special_fetch_entry_v205(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    let [map_name, key] = get_arguments_exact(args)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = map_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(key, env, context)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -439,11 +437,11 @@ pub fn special_at_block(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    let [at_block_hash, closure] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::AtBlock, env, 0)?;
 
-    let bhh = match eval(&args[0], env, context)? {
+    let bhh = match eval(at_block_hash, env, context)? {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
             if data.len() != 32 {
                 return Err(RuntimeErrorType::BadBlockHash(data).into());
@@ -457,7 +455,7 @@ pub fn special_at_block(
     };
 
     env.add_memory(cost_constants::AT_BLOCK_MEMORY)?;
-    let result = env.evaluate_at_block(bhh, &args[1], context);
+    let result = env.evaluate_at_block(bhh, closure, context);
     env.drop_memory(cost_constants::AT_BLOCK_MEMORY)?;
 
     result
@@ -472,13 +470,13 @@ pub fn special_set_entry_v200(
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
 
-    check_argument_count(3, args)?;
+    let [map_name, key, value] = get_arguments_exact(args)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(key, env, context)?;
 
-    let value = eval(&args[2], env, context)?;
+    let value = eval(value, env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = map_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -515,13 +513,13 @@ pub fn special_set_entry_v205(
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
 
-    check_argument_count(3, args)?;
+    let [map_name, key, value] = get_arguments_exact(args)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(key, env, context)?;
 
-    let value = eval(&args[2], env, context)?;
+    let value = eval(value, env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = map_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -558,13 +556,13 @@ pub fn special_insert_entry_v200(
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
 
-    check_argument_count(3, args)?;
+    let [map_name, key, value] = get_arguments_exact(args)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(key, env, context)?;
 
-    let value = eval(&args[2], env, context)?;
+    let value = eval(value, env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = map_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -602,13 +600,13 @@ pub fn special_insert_entry_v205(
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
 
-    check_argument_count(3, args)?;
+    let [map_name, key, value] = get_arguments_exact(args)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(key, env, context)?;
 
-    let value = eval(&args[2], env, context)?;
+    let value = eval(value, env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = map_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -645,11 +643,11 @@ pub fn special_delete_entry_v200(
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
 
-    check_argument_count(2, args)?;
+    let [map_name, key] = get_arguments_exact(args)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(key, env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = map_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -685,11 +683,11 @@ pub fn special_delete_entry_v205(
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
 
-    check_argument_count(2, args)?;
+    let [map_name, key] = get_arguments_exact(args)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(key, env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = map_name.match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -743,10 +741,10 @@ pub fn special_get_block_info(
     // (get-block-info? property-name block-height-uint)
     runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
 
-    check_argument_count(2, args)?;
+    let [property_name, height] = get_arguments_exact(args)?;
 
     // Handle the block property name input arg.
-    let property_name = args[0]
+    let property_name = property_name
         .match_atom()
         .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
@@ -756,7 +754,7 @@ pub fn special_get_block_info(
         .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
     // Handle the block-height input arg clause.
-    let height_eval = eval(&args[1], env, context)?;
+    let height_eval = eval(height, env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
         x => Err(CheckErrors::TypeValueError(
@@ -894,10 +892,10 @@ pub fn special_get_burn_block_info(
 ) -> Result<Value> {
     runtime_cost(ClarityCostFunction::GetBurnBlockInfo, env, 0)?;
 
-    check_argument_count(2, args)?;
+    let [property_name, height] = get_arguments_exact(args)?;
 
     // Handle the block property name input arg.
-    let property_name = args[0]
+    let property_name = property_name
         .match_atom()
         .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
@@ -906,7 +904,7 @@ pub fn special_get_burn_block_info(
     )?;
 
     // Handle the block-height input arg clause.
-    let height_eval = eval(&args[1], env, context)?;
+    let height_eval = eval(height, env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => result,
         x => {
@@ -996,10 +994,10 @@ pub fn special_get_stacks_block_info(
     // (get-stacks-block-info? property-name block-height-uint)
     runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
 
-    check_argument_count(2, args)?;
+    let [property_name, height] = get_arguments_exact(args)?;
 
     // Handle the block property name input arg.
-    let property_name = args[0]
+    let property_name = property_name
         .match_atom()
         .ok_or(CheckErrors::GetStacksBlockInfoExpectPropertyName)?;
 
@@ -1008,7 +1006,7 @@ pub fn special_get_stacks_block_info(
     )?;
 
     // Handle the block-height input arg.
-    let height_eval = eval(&args[1], env, context)?;
+    let height_eval = eval(height, env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
         x => Err(CheckErrors::TypeValueError(
@@ -1078,10 +1076,10 @@ pub fn special_get_tenure_info(
     // (get-tenure-info? property-name block-height-uint)
     runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
 
-    check_argument_count(2, args)?;
+    let [property_name, height] = get_arguments_exact(args)?;
 
     // Handle the block property name input arg.
-    let property_name = args[0]
+    let property_name = property_name
         .match_atom()
         .ok_or(CheckErrors::GetTenureInfoExpectPropertyName)?;
 
@@ -1089,7 +1087,7 @@ pub fn special_get_tenure_info(
         .ok_or(CheckErrors::GetTenureInfoExpectPropertyName)?;
 
     // Handle the block-height input arg.
-    let height_eval = eval(&args[1], env, context)?;
+    let height_eval = eval(height, env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
         x => Err(CheckErrors::TypeValueError(

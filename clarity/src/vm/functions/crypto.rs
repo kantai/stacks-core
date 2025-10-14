@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::analysis::get_arguments_exact;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
@@ -23,9 +24,7 @@ use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp25
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
-};
+use crate::vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value, BUFF_32, BUFF_33, BUFF_65};
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
@@ -94,11 +93,11 @@ pub fn special_principal_of(
 ) -> Result<Value> {
     // (principal-of? (..))
     // arg0 => (buff 33)
-    check_argument_count(1, args)?;
+    let [pub_key] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::PrincipalOf, env, 0)?;
 
-    let param0 = eval(&args[0], env, context)?;
+    let param0 = eval(pub_key, env, context)?;
     let pub_key = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
@@ -140,11 +139,10 @@ pub fn special_secp256k1_recover(
 ) -> Result<Value> {
     // (secp256k1-recover? (..))
     // arg0 => (buff 32), arg1 => (buff 65)
-    check_argument_count(2, args)?;
-
+    let [message_hash, signature] = get_arguments_exact(args)?;
     runtime_cost(ClarityCostFunction::Secp256k1recover, env, 0)?;
 
-    let param0 = eval(&args[0], env, context)?;
+    let param0 = eval(message_hash, env, context)?;
     let message = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
@@ -163,7 +161,7 @@ pub fn special_secp256k1_recover(
         }
     };
 
-    let param1 = eval(&args[1], env, context)?;
+    let param1 = eval(signature, env, context)?;
     let signature = match param1 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
@@ -173,7 +171,10 @@ pub fn special_secp256k1_recover(
                 )
                 .into());
             }
-            if data.len() < 65 || data[64] > 3 {
+            let Some(last_byte_len_65) = data.get(64) else {
+                return Ok(Value::err_uint(2));
+            };
+            if *last_byte_len_65 > 3 {
                 return Ok(Value::err_uint(2));
             }
             data
@@ -202,11 +203,11 @@ pub fn special_secp256k1_verify(
 ) -> Result<Value> {
     // (secp256k1-verify (..))
     // arg0 => (buff 32), arg1 => (buff 65), arg2 => (buff 33)
-    check_argument_count(3, args)?;
+    let [message_hash, signature, public_key] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::Secp256k1verify, env, 0)?;
 
-    let param0 = eval(&args[0], env, context)?;
+    let param0 = eval(message_hash, env, context)?;
     let message = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
@@ -225,7 +226,7 @@ pub fn special_secp256k1_verify(
         }
     };
 
-    let param1 = eval(&args[1], env, context)?;
+    let param1 = eval(signature, env, context)?;
     let signature = match param1 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
@@ -238,9 +239,12 @@ pub fn special_secp256k1_verify(
             if data.len() < 64 {
                 return Ok(Value::Bool(false));
             }
-            if data.len() == 65 && data[64] > 3 {
-                return Ok(Value::Bool(false));
-            }
+            if let Some(last_byte_len_65) = data.get(64) {
+                // if the signature is length 65, the last byte must be less than 3
+                if *last_byte_len_65 > 3 {
+                    return Ok(Value::Bool(false));
+                }
+            };
             data
         }
         _ => {
@@ -250,7 +254,7 @@ pub fn special_secp256k1_verify(
         }
     };
 
-    let param2 = eval(&args[2], env, context)?;
+    let param2 = eval(public_key, env, context)?;
     let pubkey = match param2 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {

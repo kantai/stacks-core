@@ -361,8 +361,9 @@ impl DefinedFunction {
     }
 
     pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
-        for i in 0..self.arguments.len() {
-            self.arg_types[i] = self.arg_types[i].canonicalize(epoch);
+        assert_eq!(self.arguments.len(), self.arg_types.len());
+        for arg_type in self.arg_types.iter_mut() {
+            *arg_type = arg_type.canonicalize(epoch);
         }
     }
 

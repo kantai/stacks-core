@@ -124,16 +124,15 @@ impl<'a> Parser<'a> {
     }
 
     fn next_token(&mut self) -> Option<PlacedToken> {
-        if self.next_token >= self.tokens.len() {
-            return None;
-        }
-        let token = self.tokens[self.next_token].clone();
+        let token = self.tokens.get(self.next_token)?.clone();
         self.next_token += 1;
         Some(token)
     }
 
     fn peek_next_token(&mut self) -> PlacedToken {
-        if self.next_token >= self.tokens.len() {
+        if let Some(next_token) = self.tokens.get(self.next_token) {
+            next_token.clone()
+        } else {
             PlacedToken {
                 span: Span {
                     start_line: 1,
@@ -143,8 +142,6 @@ impl<'a> Parser<'a> {
                 },
                 token: Token::Eof,
             }
-        } else {
-            self.tokens[self.next_token].clone()
         }
     }
 
@@ -166,10 +163,9 @@ impl<'a> Parser<'a> {
     fn ignore_whitespace(&mut self) -> bool {
         let mut found = false;
         loop {
-            if self.next_token >= self.tokens.len() {
+            let Some(token) = self.tokens.get(self.next_token) else {
                 return found;
-            }
-            let token = &self.tokens[self.next_token];
+            };
             match &token.token {
                 Token::Whitespace => {
                     self.next_token += 1;
@@ -183,10 +179,9 @@ impl<'a> Parser<'a> {
     fn ignore_whitespace_and_comments(&mut self) -> Vec<PreSymbolicExpression> {
         let mut comments = Vec::new();
         loop {
-            if self.next_token >= self.tokens.len() {
+            let Some(token) = self.tokens.get(self.next_token) else {
                 return comments;
-            }
-            let token = &self.tokens[self.next_token];
+            };
             match &token.token {
                 Token::Whitespace => {
                     self.next_token += 1;
@@ -302,7 +297,11 @@ impl<'a> Parser<'a> {
                                 )?;
                                 let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
                                 let mut e = PreSymbolicExpression::tuple(out_nodes);
-                                let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
+                                let span_before_eof = &self
+                                    .tokens
+                                    .get(self.tokens.len() - 2)
+                                    .ok_or_else(|| ParseErrors::InterpreterFailure)?
+                                    .span;
                                 open_tuple.span.end_line = span_before_eof.end_line;
                                 open_tuple.span.end_column = span_before_eof.end_column;
                                 e.copy_span(&open_tuple.span);
@@ -341,7 +340,11 @@ impl<'a> Parser<'a> {
                         open_tuple.nodes.push(placeholder); // Placeholder value
                         let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
                         let mut e = PreSymbolicExpression::tuple(out_nodes);
-                        let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
+                        let span_before_eof = &self
+                            .tokens
+                            .get(self.tokens.len() - 2)
+                            .ok_or_else(|| ParseErrors::InterpreterFailure)?
+                            .span;
                         open_tuple.span.end_line = span_before_eof.end_line;
                         open_tuple.span.end_column = span_before_eof.end_column;
                         e.copy_span(&open_tuple.span);
@@ -1048,7 +1051,11 @@ impl<'a> Parser<'a> {
             match self.parse_node()? {
                 Some(node) => break Ok(Some(node)),
                 None => {
-                    let token = self.tokens[self.next_token - 1].clone();
+                    let token = self
+                        .tokens
+                        .get(self.next_token - 1)
+                        .cloned()
+                        .ok_or_else(|| ParseErrors::InterpreterFailure)?;
                     match token.token {
                         Token::Eof => break Ok(None),
                         _ => {

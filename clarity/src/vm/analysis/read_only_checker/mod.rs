@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 
-use clarity_types::errors::analysis::get_arguments_at_least;
+use clarity_types::errors::analysis::{get_arguments_at_least, get_arguments_exact};
 use clarity_types::representations::ClarityName;
 use clarity_types::types::{PrincipalData, Value};
 use stacks_common::types::StacksEpochId;
@@ -302,14 +302,14 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             FromConsensusBuff => {
                 // Check only the second+ arguments: the first argument is a type parameter
-                check_argument_count(2, args)?;
-                self.check_each_expression_is_read_only(&args[1..])
+                let [_type_param, buff] = get_arguments_exact(args)?;
+                self.check_read_only(buff)
             }
             AtBlock => {
-                check_argument_count(2, args)?;
+                let [block_arg, closure] = get_arguments_exact(args)?;
 
-                let is_block_arg_read_only = self.check_read_only(&args[0])?;
-                let closure_read_only = self.check_read_only(&args[1])?;
+                let is_block_arg_read_only = self.check_read_only(block_arg)?;
+                let closure_read_only = self.check_read_only(closure)?;
                 if !closure_read_only {
                     return Err(CheckErrors::AtBlockClosureMustBeReadOnly.into());
                 }
@@ -327,7 +327,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             Let => {
                 check_arguments_at_least(2, args)?;
-                let binding_list = args[0].match_list().ok_or(CheckErrors::BadLetSyntax)?;
+                let ([binding_list], rest) = get_arguments_at_least(args)?;
+                let binding_list = binding_list.match_list().ok_or(CheckErrors::BadLetSyntax)?;
 
                 for (i, pair) in binding_list.iter().enumerate() {
                     let pair_expression = pair.match_list().ok_or_else(|| {
@@ -336,21 +337,20 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                             pair,
                         )
                     })?;
-                    let [_field_name, field_expr]: &[_; 2] = pair_expression
-                        .try_into()
-                        .map_err(|_| 
-                                 CheckError::with_expression(
-                                     SyntaxBindingError::tuple_cons_invalid_length(i).into(),
-                                     pair,
-                                 )
-                        )?;
+                    let [_field_name, field_expr]: &[_; 2] =
+                        pair_expression.try_into().map_err(|_| {
+                            CheckError::with_expression(
+                                SyntaxBindingError::let_binding_invalid_length(i).into(),
+                                pair,
+                            )
+                        })?;
 
                     if !self.check_read_only(field_expr)? {
                         return Ok(false);
                     }
                 }
 
-                self.check_each_expression_is_read_only(&args[1..args.len()])
+                self.check_each_expression_is_read_only(&rest)
             }
             Map => {
                 check_arguments_at_least(2, args)?;
@@ -386,14 +386,13 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                             pair,
                         )
                     })?;
-                    let [_field_name, field_expr]: &[_; 2] = pair_expression
-                        .try_into()
-                        .map_err(|_| 
-                                 CheckError::with_expression(
-                                     SyntaxBindingError::tuple_cons_invalid_length(i).into(),
-                                     pair,
-                                 )
-                        )?;
+                    let [_field_name, field_expr]: &[_; 2] =
+                        pair_expression.try_into().map_err(|_| {
+                            CheckError::with_expression(
+                                SyntaxBindingError::tuple_cons_invalid_length(i).into(),
+                                pair,
+                            )
+                        })?;
 
                     if !self.check_read_only(field_expr)? {
                         return Ok(false);

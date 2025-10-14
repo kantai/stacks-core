@@ -14,12 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::analysis::{get_arguments_at_least, get_arguments_exact};
+
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_arguments_at_least, CheckErrors, InterpreterError, InterpreterResult as Result,
-    RuntimeErrorType, ShortReturnType,
+    CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
 use crate::vm::Value::CallableContract;
@@ -149,18 +150,17 @@ fn special_match_opt(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    if args.len() != 3 {
-        Err(CheckErrors::BadMatchOptionSyntax(Box::new(
-            CheckErrors::IncorrectArgumentCount(4, args.len() + 1),
-        )))?;
-    }
+    let [bind_name, some_branch, none_branch] = get_arguments_exact(args).map_err(|_| {
+        CheckErrors::BadMatchOptionSyntax(Box::new(CheckErrors::IncorrectArgumentCount(
+            4,
+            args.len() + 1,
+        )))
+    })?;
 
-    let bind_name = args[0]
+    let bind_name = bind_name
         .match_atom()
         .ok_or_else(|| CheckErrors::BadMatchOptionSyntax(Box::new(CheckErrors::ExpectedName)))?
         .clone();
-    let some_branch = &args[1];
-    let none_branch = &args[2];
 
     match input.data {
         Some(data) => eval_with_new_binding(some_branch, bind_name, *data, env, context),
@@ -174,22 +174,22 @@ fn special_match_resp(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    if args.len() != 4 {
-        Err(CheckErrors::BadMatchResponseSyntax(Box::new(
-            CheckErrors::IncorrectArgumentCount(5, args.len() + 1),
-        )))?;
-    }
+    let [ok_bind_name, ok_branch, err_bind_name, err_branch] =
+        get_arguments_exact(args).map_err(|_| {
+            CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::IncorrectArgumentCount(
+                5,
+                args.len() + 1,
+            )))
+        })?;
 
-    let ok_bind_name = args[0]
+    let ok_bind_name = ok_bind_name
         .match_atom()
         .ok_or_else(|| CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::ExpectedName)))?
         .clone();
-    let ok_branch = &args[1];
-    let err_bind_name = args[2]
+    let err_bind_name = err_bind_name
         .match_atom()
         .ok_or_else(|| CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::ExpectedName)))?
         .clone();
-    let err_branch = &args[3];
 
     if input.committed {
         eval_with_new_binding(ok_branch, ok_bind_name, *input.data, env, context)
@@ -203,15 +203,15 @@ pub fn special_match(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_arguments_at_least(1, args)?;
+    let ([input], rest) = get_arguments_at_least(args)?;
 
-    let input = vm::eval(&args[0], env, context)?;
+    let input = vm::eval(input, env, context)?;
 
     runtime_cost(ClarityCostFunction::Match, env, 0)?;
 
     match input {
-        Value::Response(data) => special_match_resp(data, &args[1..], env, context),
-        Value::Optional(data) => special_match_opt(data, &args[1..], env, context),
+        Value::Response(data) => special_match_resp(data, rest, env, context),
+        Value::Optional(data) => special_match_opt(data, rest, env, context),
         _ => Err(CheckErrors::BadMatchInput(Box::new(TypeSignature::type_of(&input)?)).into()),
     }
 }

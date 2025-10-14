@@ -262,6 +262,11 @@ impl ClarityDeserializable<STXBalance> for STXBalance {
             InterpreterError::Expect("STXBalance deserialization: failed decoding bytes.".into())
         })?;
         let result = if bytes.len() == STXBalance::unlocked_and_v1_size {
+            let bytes: [_; STXBalance::unlocked_and_v1_size] = bytes.try_into().map_err(|_| {
+                InterpreterError::Expect(
+                    "STXBalance deserialization: failed reading expected bytes".into(),
+                )
+            })?;
             let amount_unlocked = u128::from_be_bytes(bytes[0..16].try_into().map_err(|_| {
                 InterpreterError::Expect(
                     "STXBalance deserialization: failed reading amount_unlocked.".into(),
@@ -290,6 +295,11 @@ impl ClarityDeserializable<STXBalance> for STXBalance {
                 }
             }
         } else if bytes.len() == STXBalance::v2_to_v4_size {
+            let bytes: [_; STXBalance::v2_to_v4_size] = bytes.try_into().map_err(|_| {
+                InterpreterError::Expect(
+                    "STXBalance deserialization: failed reading expected bytes".into(),
+                )
+            })?;
             let version = &bytes[0];
             if version != &STXBalance::pox_2_version
                 && version != &STXBalance::pox_3_version

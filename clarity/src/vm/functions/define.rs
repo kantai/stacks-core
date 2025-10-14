@@ -16,12 +16,11 @@
 
 use std::collections::BTreeMap;
 
+use clarity_types::errors::analysis::{get_arguments_at_least, get_arguments_exact};
+
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
-use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
-    SyntaxBindingErrorType,
-};
+use crate::vm::errors::{CheckErrors, InterpreterResult as Result, SyntaxBindingErrorType};
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
@@ -301,95 +300,78 @@ impl<'a> DefineFunctionsParsed<'a> {
         };
         let result = match define_type {
             DefineFunctions::Constant => {
-                check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-                DefineFunctionsParsed::Constant {
-                    name,
-                    value: &args[1],
-                }
+                let [name, value] = get_arguments_exact(args)?;
+                let name = name.match_atom().ok_or(CheckErrors::ExpectedName)?;
+                DefineFunctionsParsed::Constant { name, value }
             }
             DefineFunctions::PrivateFunction => {
-                check_argument_count(2, args)?;
-                let signature = args[0]
+                let [signature, body] = get_arguments_exact(args)?;
+                let signature = signature
                     .match_list()
                     .ok_or(CheckErrors::DefineFunctionBadSignature)?;
-                DefineFunctionsParsed::PrivateFunction {
-                    signature,
-                    body: &args[1],
-                }
+                DefineFunctionsParsed::PrivateFunction { signature, body }
             }
             DefineFunctions::ReadOnlyFunction => {
-                check_argument_count(2, args)?;
-                let signature = args[0]
+                let [signature, body] = get_arguments_exact(args)?;
+                let signature = signature
                     .match_list()
                     .ok_or(CheckErrors::DefineFunctionBadSignature)?;
-                DefineFunctionsParsed::ReadOnlyFunction {
-                    signature,
-                    body: &args[1],
-                }
+                DefineFunctionsParsed::ReadOnlyFunction { signature, body }
             }
             DefineFunctions::PublicFunction => {
-                check_argument_count(2, args)?;
-                let signature = args[0]
+                let [signature, body] = get_arguments_exact(args)?;
+                let signature = signature
                     .match_list()
                     .ok_or(CheckErrors::DefineFunctionBadSignature)?;
-                DefineFunctionsParsed::PublicFunction {
-                    signature,
-                    body: &args[1],
-                }
+                DefineFunctionsParsed::PublicFunction { signature, body }
             }
             DefineFunctions::NonFungibleToken => {
-                check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-                DefineFunctionsParsed::NonFungibleToken {
-                    name,
-                    nft_type: &args[1],
-                }
+                let [name, nft_type] = get_arguments_exact(args)?;
+                let name = name.match_atom().ok_or(CheckErrors::ExpectedName)?;
+                DefineFunctionsParsed::NonFungibleToken { name, nft_type }
             }
             DefineFunctions::FungibleToken => {
-                check_arguments_at_least(1, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-                if args.len() == 1 {
-                    DefineFunctionsParsed::UnboundedFungibleToken { name }
-                } else if args.len() == 2 {
-                    DefineFunctionsParsed::BoundedFungibleToken {
-                        name,
-                        max_supply: &args[1],
-                    }
-                } else {
+                let ([name], max_supply_args) = get_arguments_at_least(args)?;
+                let name = name.match_atom().ok_or(CheckErrors::ExpectedName)?;
+                if max_supply_args.len() > 1 {
                     return Err(CheckErrors::IncorrectArgumentCount(1, args.len()));
+                }
+                if let Some(max_supply) = max_supply_args.first() {
+                    DefineFunctionsParsed::BoundedFungibleToken { name, max_supply }
+                } else {
+                    DefineFunctionsParsed::UnboundedFungibleToken { name }
                 }
             }
             DefineFunctions::Map => {
-                check_argument_count(3, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let [name, key_type, value_type] = get_arguments_exact(args)?;
+                let name = name.match_atom().ok_or(CheckErrors::ExpectedName)?;
                 DefineFunctionsParsed::Map {
                     name,
-                    key_type: &args[1],
-                    value_type: &args[2],
+                    key_type,
+                    value_type,
                 }
             }
             DefineFunctions::PersistedVariable => {
-                check_argument_count(3, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let [name, data_type, initial] = get_arguments_exact(args)?;
+                let name = name.match_atom().ok_or(CheckErrors::ExpectedName)?;
                 DefineFunctionsParsed::PersistedVariable {
                     name,
-                    data_type: &args[1],
-                    initial: &args[2],
+                    data_type,
+                    initial,
                 }
             }
             DefineFunctions::Trait => {
-                check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let [name, functions_l @ ..]: &[_; 2] = get_arguments_exact(args)?;
+                let name = name.match_atom().ok_or(CheckErrors::ExpectedName)?;
                 DefineFunctionsParsed::Trait {
                     name,
-                    functions: &args[1..],
+                    functions: functions_l,
                 }
             }
             DefineFunctions::UseTrait => {
-                check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-                match &args[1].expr {
+                let [name, field] = get_arguments_exact(args)?;
+                let name = name.match_atom().ok_or(CheckErrors::ExpectedName)?;
+                match field.expr {
                     Field(ref field) => DefineFunctionsParsed::UseTrait {
                         name,
                         trait_identifier: field,
@@ -398,8 +380,8 @@ impl<'a> DefineFunctionsParsed<'a> {
                 }
             }
             DefineFunctions::ImplTrait => {
-                check_argument_count(1, args)?;
-                match &args[0].expr {
+                let [arg] = get_arguments_exact(args)?;
+                match arg.expr {
                     Field(ref field) => DefineFunctionsParsed::ImplTrait {
                         trait_identifier: field,
                     },

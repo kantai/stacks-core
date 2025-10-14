@@ -14,13 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::analysis::get_arguments_exact;
 use clarity_types::types::serialization::SerializationError;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
-};
+use crate::vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::TO_ASCII_MAX_BUFF;
 use crate::vm::types::SequenceSubtype::BufferType;
@@ -75,10 +74,15 @@ pub fn buff_to_int_generic(
                 } else {
                     transfer_buffer.len() - original_slice.len()
                 };
-                for (from_index, _) in original_slice.iter().enumerate() {
-                    let to_index = from_index + offset;
-                    transfer_buffer[to_index] = original_slice[from_index];
-                }
+                let copy_dest = transfer_buffer
+                    .get_mut(offset..(offset + original_slice.len()))
+                    .ok_or_else(|| {
+                        InterpreterError::Expect(
+                            "Transfer buffer is unexpectedly too small to fit original slice"
+                                .into(),
+                        )
+                    })?;
+                copy_dest.copy_from_slice(original_slice);
                 let value = conversion_fn(transfer_buffer);
                 Ok(value)
             }
@@ -245,9 +249,8 @@ pub fn special_to_ascii(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(1, args)?;
-
-    let value = eval(&args[0], env, context)?;
+    let [value_arg] = get_arguments_exact(args)?;
+    let value = eval(value_arg, env, context)?;
 
     runtime_cost(ClarityCostFunction::ToAscii, env, value.size()?)?;
 
@@ -314,10 +317,9 @@ pub fn from_consensus_buff(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
-
-    let type_arg = TypeSignature::parse_type_repr(*env.epoch(), &args[0], env)?;
-    let value = eval(&args[1], env, context)?;
+    let [type_arg, value_arg] = get_arguments_exact(args)?;
+    let type_arg = TypeSignature::parse_type_repr(*env.epoch(), type_arg, env)?;
+    let value = eval(value_arg, env, context)?;
 
     // get the buffer bytes from the supplied value. if not passed a buffer,
     // this is a type error

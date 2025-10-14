@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use clarity_types::errors::analysis::get_arguments_exact;
 pub use clarity_types::types::signatures::{
     AssetIdentifier, BufferLength, CallableSubtype, ListTypeData, SequenceSubtype, StringSubtype,
     StringUTF8Length, TupleTypeSignature, TypeSignature, ASCII_40, BUFF_1, BUFF_16, BUFF_20,
@@ -226,12 +227,10 @@ impl TypeSignatureExt for TypeSignature {
         type_args: &[SymbolicExpression],
         accounting: &mut A,
     ) -> Result<TypeSignature, CheckErrors> {
-        if type_args.len() != 2 {
-            return Err(CheckErrors::InvalidTypeDescription);
-        }
+        let [max_len, atomic_type_arg] =
+            get_arguments_exact(type_args).map_err(|_| CheckErrors::InvalidTypeDescription)?;
 
-        if let SymbolicExpressionType::LiteralValue(Value::Int(max_len)) = &type_args[0].expr {
-            let atomic_type_arg = &type_args[type_args.len() - 1];
+        if let SymbolicExpressionType::LiteralValue(Value::Int(max_len)) = &max_len.expr {
             let entry_type = TypeSignature::parse_type_repr(epoch, atomic_type_arg, accounting)?;
             let max_len = u32::try_from(*max_len).map_err(|_| CheckErrors::ValueTooLarge)?;
             ListTypeData::new_list(entry_type, max_len).map(|x| x.into())
@@ -262,10 +261,9 @@ impl TypeSignatureExt for TypeSignature {
     fn parse_buff_type_repr(
         type_args: &[SymbolicExpression],
     ) -> Result<TypeSignature, CheckErrors> {
-        if type_args.len() != 1 {
-            return Err(CheckErrors::InvalidTypeDescription);
-        }
-        if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
+        let [buff_len] =
+            get_arguments_exact(type_args).map_err(|_| CheckErrors::InvalidTypeDescription)?;
+        if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &buff_len.expr {
             BufferLength::try_from(*buff_len)
                 .map(|buff_len| SequenceType(SequenceSubtype::BufferType(buff_len)))
         } else {
@@ -278,10 +276,9 @@ impl TypeSignatureExt for TypeSignature {
     fn parse_string_utf8_type_repr(
         type_args: &[SymbolicExpression],
     ) -> Result<TypeSignature, CheckErrors> {
-        if type_args.len() != 1 {
-            return Err(CheckErrors::InvalidTypeDescription);
-        }
-        if let SymbolicExpressionType::LiteralValue(Value::Int(utf8_len)) = &type_args[0].expr {
+        let [buff_len] =
+            get_arguments_exact(type_args).map_err(|_| CheckErrors::InvalidTypeDescription)?;
+        if let SymbolicExpressionType::LiteralValue(Value::Int(utf8_len)) = &buff_len.expr {
             StringUTF8Length::try_from(*utf8_len).map(|utf8_len| {
                 SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(utf8_len)))
             })
@@ -295,10 +292,9 @@ impl TypeSignatureExt for TypeSignature {
     fn parse_string_ascii_type_repr(
         type_args: &[SymbolicExpression],
     ) -> Result<TypeSignature, CheckErrors> {
-        if type_args.len() != 1 {
-            return Err(CheckErrors::InvalidTypeDescription);
-        }
-        if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
+        let [buff_len] =
+            get_arguments_exact(type_args).map_err(|_| CheckErrors::InvalidTypeDescription)?;
+        if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &buff_len.expr {
             BufferLength::try_from(*buff_len).map(|buff_len| {
                 SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_len)))
             })
@@ -312,10 +308,9 @@ impl TypeSignatureExt for TypeSignature {
         type_args: &[SymbolicExpression],
         accounting: &mut A,
     ) -> Result<TypeSignature, CheckErrors> {
-        if type_args.len() != 1 {
-            return Err(CheckErrors::InvalidTypeDescription);
-        }
-        let inner_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
+        let [inner_type] =
+            get_arguments_exact(type_args).map_err(|_| CheckErrors::InvalidTypeDescription)?;
+        let inner_type = TypeSignature::parse_type_repr(epoch, inner_type, accounting)?;
 
         TypeSignature::new_option(inner_type)
     }
@@ -325,11 +320,10 @@ impl TypeSignatureExt for TypeSignature {
         type_args: &[SymbolicExpression],
         accounting: &mut A,
     ) -> Result<TypeSignature, CheckErrors> {
-        if type_args.len() != 2 {
-            return Err(CheckErrors::InvalidTypeDescription);
-        }
-        let ok_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
-        let err_type = TypeSignature::parse_type_repr(epoch, &type_args[1], accounting)?;
+        let [ok_type, err_type] =
+            get_arguments_exact(type_args).map_err(|_| CheckErrors::InvalidTypeDescription)?;
+        let ok_type = TypeSignature::parse_type_repr(epoch, ok_type, accounting)?;
+        let err_type = TypeSignature::parse_type_repr(epoch, err_type, accounting)?;
         TypeSignature::new_response(ok_type, err_type)
     }
 
@@ -411,17 +405,16 @@ impl TypeSignatureExt for TypeSignature {
             let args = function_type
                 .match_list()
                 .ok_or(CheckErrors::DefineTraitBadSignature)?;
-            if args.len() != 3 {
-                return Err(CheckErrors::InvalidTypeDescription);
-            }
+            let [fn_name, fn_args_exprs, fn_return] =
+                get_arguments_exact(args).map_err(|_| CheckErrors::InvalidTypeDescription)?;
 
             // Extract function's name
-            let fn_name = args[0]
+            let fn_name = fn_name
                 .match_atom()
                 .ok_or(CheckErrors::DefineTraitBadSignature)?;
 
             // Extract function's arguments
-            let fn_args_exprs = args[1]
+            let fn_args_exprs = fn_args_exprs
                 .match_list()
                 .ok_or(CheckErrors::DefineTraitBadSignature)?;
             let fn_args = fn_args_exprs
@@ -430,7 +423,7 @@ impl TypeSignatureExt for TypeSignature {
                 .collect::<Result<_, CheckErrors>>()?;
 
             // Extract function's type return - must be a response
-            let fn_return = match TypeSignature::parse_type_repr(epoch, &args[2], accounting) {
+            let fn_return = match TypeSignature::parse_type_repr(epoch, fn_return, accounting) {
                 Ok(response) => match response {
                     TypeSignature::ResponseType(_) => Ok(response),
                     _ => Err(CheckErrors::DefineTraitBadSignature),
@@ -559,17 +552,17 @@ where
         .enumerate()
         .map(|(i, key_type_pair)| {
             if let List(ref as_vec) = key_type_pair.expr {
-                if as_vec.len() != 2 {
-                    Err((
-                        CheckErrors::BadSyntaxBinding(SyntaxBindingError::InvalidLength(
-                            binding_error_type,
-                            i,
-                        )),
-                        key_type_pair,
-                    ))
-                } else {
-                    Ok((&as_vec[0], &as_vec[1]))
-                }
+                let [first, second]: &[SymbolicExpression; 2] =
+                    as_vec.as_slice().try_into().map_err(|_| {
+                        (
+                            CheckErrors::BadSyntaxBinding(SyntaxBindingError::InvalidLength(
+                                binding_error_type,
+                                i,
+                            )),
+                            key_type_pair,
+                        )
+                    })?;
+                Ok((first, second))
             } else {
                 Err((
                     SyntaxBindingError::NotList(binding_error_type, i).into(),

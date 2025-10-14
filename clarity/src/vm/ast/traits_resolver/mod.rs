@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 
+use clarity_types::errors::analysis::get_arguments_exact;
 use clarity_types::representations::ClarityName;
 use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier};
 
@@ -55,11 +56,10 @@ impl TraitsResolver {
 
             match define_type {
                 DefineFunctions::Trait => {
-                    if args.len() != 2 {
-                        return Err(ParseErrors::DefineTraitBadSignature.into());
-                    }
+                    let [trait_name, trait_defn] = get_arguments_exact(&args)
+                        .map_err(|_| ParseErrors::DefineTraitBadSignature)?;
 
-                    match (&args[0].pre_expr, &args[1].pre_expr) {
+                    match (&trait_name.pre_expr, &trait_defn.pre_expr) {
                         (Atom(trait_name), List(trait_definition)) => {
                             // Check for collisions
                             if contract_ast.referenced_traits.contains_key(trait_name) {
@@ -87,17 +87,16 @@ impl TraitsResolver {
                     }
                 }
                 DefineFunctions::UseTrait => {
-                    if args.len() != 2 {
-                        return Err(ParseErrors::ImportTraitBadSignature.into());
-                    }
+                    let [trait_name, trait_id] = get_arguments_exact(&args)
+                        .map_err(|_| ParseErrors::ImportTraitBadSignature)?;
 
-                    if let Some(trait_name) = args[0].match_atom() {
+                    if let Some(trait_name) = trait_name.match_atom() {
                         // Check for collisions
                         if contract_ast.referenced_traits.contains_key(trait_name) {
                             return Err(ParseErrors::NameAlreadyUsed(trait_name.to_string()).into());
                         }
 
-                        let trait_id = match &args[1].pre_expr {
+                        let trait_id = match &trait_id.pre_expr {
                             SugaredFieldIdentifier(contract_name, name) => {
                                 let contract_identifier = QualifiedContractIdentifier::new(
                                     contract_ast.contract_identifier.issuer.clone(),
@@ -119,11 +118,10 @@ impl TraitsResolver {
                     }
                 }
                 DefineFunctions::ImplTrait => {
-                    if args.len() != 1 {
-                        return Err(ParseErrors::ImplTraitBadSignature.into());
-                    }
+                    let [trait_arg] = get_arguments_exact(&args)
+                        .map_err(|_| ParseErrors::ImplTraitBadSignature)?;
 
-                    let trait_id = match &args[0].pre_expr {
+                    let trait_id = match &trait_arg.pre_expr {
                         SugaredFieldIdentifier(contract_name, name) => {
                             let contract_identifier = QualifiedContractIdentifier::new(
                                 contract_ast.contract_identifier.issuer.clone(),
@@ -150,9 +148,9 @@ impl TraitsResolver {
                 | DefineFunctions::PersistedVariable
                 | DefineFunctions::FungibleToken
                 | DefineFunctions::NonFungibleToken => {
-                    if !args.is_empty() {
+                    if let Some(rest_args) = args.get(1..) {
                         self.probe_for_generics(
-                            args[1..].iter().copied(),
+                            rest_args.iter().copied(),
                             &mut referenced_traits,
                             false,
                         )?;

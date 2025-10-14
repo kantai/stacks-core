@@ -16,6 +16,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use clarity_types::errors::analysis::get_arguments_exact;
 use clarity_types::representations::ClarityName;
 
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
@@ -148,8 +149,8 @@ impl DefinitionSorter {
                             match define_function {
                                 DefineFunctions::PersistedVariable | DefineFunctions::Constant => {
                                     // Args: [(define-name-and-types), ...]: ignore 1st arg
-                                    if !function_args.is_empty() {
-                                        for expr in function_args[1..function_args.len()].iter() {
+                                    if let Some(rest_args) = function_args.get(1..) {
+                                        for expr in rest_args.iter() {
                                             self.probe_for_dependencies(expr, tle_index, version)?;
                                         }
                                     }
@@ -159,51 +160,41 @@ impl DefinitionSorter {
                                 | DefineFunctions::PrivateFunction
                                 | DefineFunctions::ReadOnlyFunction => {
                                     // Args: [(define-name-and-types), ...]
-                                    if function_args.len() == 2 {
+                                    if let Ok([signature, body]) =
+                                        get_arguments_exact(&function_args)
+                                    {
                                         self.probe_for_dependencies_in_define_args(
-                                            function_args[0],
-                                            tle_index,
-                                            version,
+                                            signature, tle_index, version,
                                         )?;
-                                        self.probe_for_dependencies(
-                                            function_args[1],
-                                            tle_index,
-                                            version,
-                                        )?;
+                                        self.probe_for_dependencies(body, tle_index, version)?;
                                     }
                                     return Ok(());
                                 }
                                 DefineFunctions::Map => {
                                     // Args: [name, key, value]: with key value being potentially tuples
-                                    if function_args.len() == 3 {
-                                        self.probe_for_dependencies(
-                                            function_args[1],
-                                            tle_index,
-                                            version,
-                                        )?;
-                                        self.probe_for_dependencies(
-                                            function_args[2],
-                                            tle_index,
-                                            version,
-                                        )?;
+                                    if let Ok([_, key, value]) = get_arguments_exact(&function_args)
+                                    {
+                                        self.probe_for_dependencies(key, tle_index, version)?;
+                                        self.probe_for_dependencies(value, tle_index, version)?;
                                     }
                                     return Ok(());
                                 }
                                 DefineFunctions::Trait => {
-                                    if function_args.len() != 2 {
+                                    let Ok([_, trait_defn]) = get_arguments_exact(&function_args)
+                                    else {
                                         return Ok(());
-                                    }
-                                    if let Some(trait_sig) = function_args[1].match_list() {
+                                    };
+                                    if let Some(trait_sig) = trait_defn.match_list() {
                                         for func_sig in trait_sig.iter() {
                                             if let Some(func_sig) = func_sig.match_list() {
-                                                if func_sig.len() == 3 {
+                                                if let Ok([_, func_args, func_return]) =
+                                                    get_arguments_exact(&func_sig)
+                                                {
                                                     self.probe_for_dependencies(
-                                                        &func_sig[1],
-                                                        tle_index,
-                                                        version,
+                                                        func_args, tle_index, version,
                                                     )?;
                                                     self.probe_for_dependencies(
-                                                        &func_sig[2],
+                                                        func_return,
                                                         tle_index,
                                                         version,
                                                     )?;
@@ -219,14 +210,11 @@ impl DefinitionSorter {
                                 DefineFunctions::NonFungibleToken => return Ok(()),
                                 DefineFunctions::FungibleToken => {
                                     // probe_for_dependencies if the supply arg (optional) is being passed
-                                    if function_args.len() == 2 {
-                                        self.probe_for_dependencies(
-                                            function_args[1],
-                                            tle_index,
-                                            version,
-                                        )?;
-                                    }
-                                    return Ok(());
+                                    let Ok([_, supply]) = get_arguments_exact(&function_args)
+                                    else {
+                                        return Ok(());
+                                    };
+                                    return self.probe_for_dependencies(supply, tle_index, version);
                                 }
                             }
                         } else if let Some(native_function) =
@@ -235,9 +223,13 @@ impl DefinitionSorter {
                             match native_function {
                                 NativeFunctions::ContractCall => {
                                     // Args: [contract-name, function-name, ...]: ignore contract-name, function-name, handle rest
-                                    if function_args.len() > 2 {
-                                        for expr in function_args[2..].iter() {
-                                            self.probe_for_dependencies(expr, tle_index, version)?;
+                                    if let Some(rest_args) = function_args.get(2..) {
+                                        if rest_args.len() > 0 {
+                                            for expr in rest_args.iter() {
+                                                self.probe_for_dependencies(
+                                                    expr, tle_index, version,
+                                                )?;
+                                            }
                                         }
                                     }
                                     return Ok(());
@@ -245,10 +237,18 @@ impl DefinitionSorter {
                                 NativeFunctions::Let => {
                                     // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
                                     if function_args.len() > 1 {
-                                        if let Some(bindings) = function_args[0].match_list() {
+                                        if let Some(bindings) = function_args
+                                            .get(0)
+                                            .ok_or_else(|| ParseErrors::InterpreterFailure)?
+                                            .match_list()
+                                        {
                                             self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(bindings.iter().collect(), tle_index, version)?;
                                         }
-                                        for expr in function_args[1..function_args.len()].iter() {
+                                        for expr in function_args
+                                            .get(1..)
+                                            .ok_or_else(|| ParseErrors::InterpreterFailure)?
+                                            .iter()
+                                        {
                                             self.probe_for_dependencies(expr, tle_index, version)?;
                                         }
                                     }
@@ -256,14 +256,11 @@ impl DefinitionSorter {
                                 }
                                 NativeFunctions::TupleGet => {
                                     // Args: [key-name, expr]: ignore key-name
-                                    if function_args.len() == 2 {
-                                        self.probe_for_dependencies(
-                                            function_args[1],
-                                            tle_index,
-                                            version,
-                                        )?;
-                                    }
-                                    return Ok(());
+                                    let Ok([_key, expr]) = get_arguments_exact(&function_args)
+                                    else {
+                                        return Ok(());
+                                    };
+                                    return self.probe_for_dependencies(expr, tle_index, version);
                                 }
                                 NativeFunctions::TupleCons => {
                                     // Args: [(key-name A), (key-name-2 B), ...]: handle as a tuple
@@ -367,10 +364,10 @@ impl DefinitionSorter {
         tle_index: usize,
         version: ClarityVersion,
     ) -> ParseResult<()> {
-        if pair.len() == 2 {
-            self.probe_for_dependencies(&pair[1], tle_index, version)?;
-        }
-        Ok(())
+        let Ok([_key, value]) = get_arguments_exact(pair) else {
+            return Ok(());
+        };
+        self.probe_for_dependencies(value, tle_index, version)
     }
 
     fn find_expression_definition<'b>(
@@ -384,9 +381,10 @@ impl DefinitionSorter {
             DefineFunctions::lookup_by_name(function_name)?;
             Some(args)
         }?;
-        let defined_name = match args.first()?.match_list() {
+        let first_arg = args.first()?;
+        let defined_name = match first_arg.match_list() {
             Some(list) => list.first()?,
-            _ => &args[0],
+            _ => first_arg,
         };
         let tle_name = defined_name.match_atom()?;
         Some((tle_name.clone(), defined_name.id, defined_name))

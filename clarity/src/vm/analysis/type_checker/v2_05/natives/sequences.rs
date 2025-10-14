@@ -21,8 +21,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
 use crate::vm::analysis::type_checker::v2_05::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, TypeChecker,
-    TypingContext,
+    CheckError, CheckErrors, TypeChecker, TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::analysis::get_arguments_at_least;
 use clarity_types::representations::ClarityName;
 
 pub use super::errors::{check_argument_count, check_arguments_at_least, CheckError, CheckErrors};
@@ -202,28 +203,42 @@ impl ArithmeticOnlyChecker<'_> {
             TupleGet => {
                 // these functions use a name in the first argument
                 check_argument_count(2, args).map_err(|_| Error::UnexpectedContractStructure)?;
-                self.check_all(&args[1..])
+                self.check_all(
+                    args.get(1..)
+                        .ok_or_else(|| Error::UnexpectedContractStructure)?,
+                )
             }
             Match => {
-                if !(args.len() == 4 || args.len() == 5) {
-                    return Err(Error::UnexpectedContractStructure);
-                }
+                let (inp, ok_branch, err_branch) = match args.len() {
+                    4 => {
+                        let [inp, _, ok_branch, err_branch]: &[_; 4] = args
+                            .try_into()
+                            .map_err(|_| Error::UnexpectedContractStructure)?;
+                        (inp, ok_branch, err_branch)
+                    }
+                    5 => {
+                        let [inp, _, ok_branch, _, err_branch]: &[_; 5] = args
+                            .try_into()
+                            .map_err(|_| Error::UnexpectedContractStructure)?;
+                        (inp, ok_branch, err_branch)
+                    }
+                    _ => return Err(Error::UnexpectedContractStructure),
+                };
+
                 // check the match input
-                self.check_expression(&args[0])?;
+                self.check_expression(inp)?;
                 // check the 'ok' branch
-                self.check_expression(&args[2])?;
+                self.check_expression(ok_branch)?;
                 // check the 'err' branch
-                if args.len() == 4 {
-                    self.check_expression(&args[3])
-                } else {
-                    self.check_expression(&args[4])
-                }
+                self.check_expression(err_branch)
             }
             Let => {
                 check_arguments_at_least(2, args)
                     .map_err(|_| Error::UnexpectedContractStructure)?;
+                let ([binding_list], rest) =
+                    get_arguments_at_least(args).map_err(|_| Error::UnexpectedContractStructure)?;
 
-                let binding_list = args[0]
+                let binding_list = binding_list
                     .match_list()
                     .ok_or(Error::UnexpectedContractStructure)?;
 
@@ -231,25 +246,25 @@ impl ArithmeticOnlyChecker<'_> {
                     let pair_expression = pair
                         .match_list()
                         .ok_or(Error::UnexpectedContractStructure)?;
-                    if pair_expression.len() != 2 {
-                        return Err(Error::UnexpectedContractStructure);
-                    }
+                    let [_field_name, field_expr]: &[_; 2] = pair_expression
+                        .try_into()
+                        .map_err(|_| Error::UnexpectedContractStructure)?;
 
-                    self.check_expression(&pair_expression[1])?;
+                    self.check_expression(field_expr)?;
                 }
 
-                self.check_all(&args[1..args.len()])
+                self.check_all(rest)
             }
             TupleCons => {
                 for pair in args.iter() {
                     let pair_expression = pair
                         .match_list()
                         .ok_or(Error::UnexpectedContractStructure)?;
-                    if pair_expression.len() != 2 {
-                        return Err(Error::UnexpectedContractStructure);
-                    }
+                    let [_field_name, field_expr]: &[_; 2] = pair_expression
+                        .try_into()
+                        .map_err(|_| Error::UnexpectedContractStructure)?;
 
-                    self.check_expression(&pair_expression[1])?;
+                    self.check_expression(field_expr)?;
                 }
                 Ok(())
             }

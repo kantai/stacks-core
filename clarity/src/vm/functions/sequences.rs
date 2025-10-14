@@ -14,16 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
+use std::{cmp, iter};
 
+use clarity_types::errors::analysis::{get_arguments_at_least, get_arguments_exact};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostOverflowingMath};
-use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
-    RuntimeErrorType,
-};
+use crate::vm::errors::{CheckErrors, InterpreterResult as Result, RuntimeErrorType};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::ListTypeData;
 use crate::vm::types::TypeSignature::BoolType;
@@ -53,13 +51,14 @@ pub fn special_filter(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
-
+    let [function_name, sequence] = get_arguments_exact(args)?;
     runtime_cost(ClarityCostFunction::Filter, env, 0)?;
 
-    let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let function_name = function_name
+        .match_atom()
+        .ok_or(CheckErrors::ExpectedName)?;
 
-    let mut sequence = eval(&args[1], env, context)?;
+    let mut sequence = eval(sequence, env, context)?;
     let function = lookup_function(function_name, env)?;
 
     match sequence {
@@ -91,15 +90,16 @@ pub fn special_fold(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(3, args)?;
-
+    let [function_name, sequence, initial] = get_arguments_exact(args)?;
     runtime_cost(ClarityCostFunction::Fold, env, 0)?;
 
-    let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let function_name = function_name
+        .match_atom()
+        .ok_or(CheckErrors::ExpectedName)?;
 
     let function = lookup_function(function_name, env)?;
-    let mut sequence = eval(&args[1], env, context)?;
-    let initial = eval(&args[2], env, context)?;
+    let mut sequence = eval(sequence, env, context)?;
+    let initial = eval(initial, env, context)?;
 
     match sequence {
         Value::Sequence(ref mut sequence_data) => sequence_data
@@ -124,11 +124,11 @@ pub fn special_map(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_arguments_at_least(2, args)?;
+    let ([fname_arg, first_arg], rest_arg) = get_arguments_at_least(args)?;
 
     runtime_cost(ClarityCostFunction::Map, env, args.len())?;
 
-    let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let function_name = fname_arg.match_atom().ok_or(CheckErrors::ExpectedName)?;
     let function = lookup_function(function_name, env)?;
 
     // Let's consider a function f (f a b c ...)
@@ -136,7 +136,9 @@ pub fn special_map(
     // To get something like: [a0, b0, c0, ...] [a1, b1, c1, ...]
     let mut mapped_func_args = vec![];
     let mut min_args_len = usize::MAX;
-    for map_arg in args[1..].iter() {
+    let map_arg_iter = iter::once(first_arg).chain(rest_arg.iter());
+
+    for map_arg in map_arg_iter {
         let mut sequence = eval(map_arg, env, context)?;
         match sequence {
             Value::Sequence(ref mut sequence_data) => {
@@ -145,11 +147,10 @@ pub fn special_map(
                     if apply_index > min_args_len {
                         break;
                     }
-                    if apply_index >= mapped_func_args.len() {
-                        mapped_func_args.push(vec![value]);
-                    } else {
-                        mapped_func_args[apply_index].push(value);
-                    }
+                    match mapped_func_args.get_mut(apply_index) {
+                        None => mapped_func_args.push(vec![value]),
+                        Some(mapped_args_at_index) => mapped_args_at_index.push(value),
+                    };
                 }
             }
             _ => {
@@ -185,12 +186,12 @@ pub fn special_append(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    let [sequence, element] = get_arguments_exact(args)?;
 
-    let sequence = eval(&args[0], env, context)?;
+    let sequence = eval(sequence, env, context)?;
     match sequence {
         Value::Sequence(SequenceData::List(list)) => {
-            let element = eval(&args[1], env, context)?;
+            let element = eval(element, env, context)?;
             let ListData {
                 mut data,
                 type_signature,
@@ -233,10 +234,10 @@ pub fn special_concat_v200(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    let [wrapped_seq, other_wrapped_seq] = get_arguments_exact(args)?;
 
-    let mut wrapped_seq = eval(&args[0], env, context)?;
-    let other_wrapped_seq = eval(&args[1], env, context)?;
+    let mut wrapped_seq = eval(wrapped_seq, env, context)?;
+    let other_wrapped_seq = eval(other_wrapped_seq, env, context)?;
 
     runtime_cost(
         ClarityCostFunction::Concat,
@@ -259,10 +260,10 @@ pub fn special_concat_v205(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    let [wrapped_seq, other_wrapped_seq] = get_arguments_exact(args)?;
 
-    let mut wrapped_seq = eval(&args[0], env, context)?;
-    let other_wrapped_seq = eval(&args[1], env, context)?;
+    let mut wrapped_seq = eval(wrapped_seq, env, context)?;
+    let other_wrapped_seq = eval(other_wrapped_seq, env, context)?;
 
     match (&mut wrapped_seq, other_wrapped_seq) {
         (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => {
@@ -288,13 +289,13 @@ pub fn special_as_max_len(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    let [sequence, expected_len] = get_arguments_exact(args)?;
 
-    let mut sequence = eval(&args[0], env, context)?;
+    let mut sequence = eval(sequence, env, context)?;
 
     runtime_cost(ClarityCostFunction::AsMaxLen, env, 0)?;
 
-    if let Some(Value::UInt(expected_len)) = args[1].match_literal_value() {
+    if let Some(Value::UInt(expected_len)) = expected_len.match_literal_value() {
         let sequence_len = match sequence {
             Value::Sequence(ref sequence_data) => sequence_data.len() as u128,
             _ => {
@@ -313,7 +314,7 @@ pub fn special_as_max_len(
             Ok(Value::some(sequence)?)
         }
     } else {
-        let actual_len = eval(&args[1], env, context)?;
+        let actual_len = eval(expected_len, env, context)?;
         Err(CheckErrors::TypeError(
             Box::new(TypeSignature::UIntType),
             Box::new(TypeSignature::type_of(&actual_len)?),
@@ -378,11 +379,11 @@ pub fn special_slice(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(3, args)?;
+    let [seq, left_position, right_position] = get_arguments_exact(args)?;
 
-    let seq = eval(&args[0], env, context)?;
-    let left_position = eval(&args[1], env, context)?;
-    let right_position = eval(&args[2], env, context)?;
+    let seq = eval(seq, env, context)?;
+    let left_position = eval(left_position, env, context)?;
+    let right_position = eval(right_position, env, context)?;
 
     let sliced_seq_res = (|| {
         match (seq, left_position, right_position) {
@@ -428,9 +429,9 @@ pub fn special_replace_at(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(3, args)?;
+    let [seq, index_val, new_elem] = get_arguments_exact(args)?;
 
-    let seq = eval(&args[0], env, context)?;
+    let seq = eval(seq, env, context)?;
     let seq_type = TypeSignature::type_of(&seq)?;
 
     // runtime is the cost to copy over one element into its place
@@ -441,8 +442,8 @@ pub fn special_replace_at(
     } else {
         return Err(CheckErrors::ExpectedSequence(Box::new(seq_type)).into());
     };
-    let index_val = eval(&args[1], env, context)?;
-    let new_element = eval(&args[2], env, context)?;
+    let index_val = eval(index_val, env, context)?;
+    let new_element = eval(new_elem, env, context)?;
 
     if expected_elem_type != TypeSignature::NoType
         && !expected_elem_type.admits(env.epoch(), &new_element)?

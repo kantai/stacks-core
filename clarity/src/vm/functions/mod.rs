@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::analysis::{get_arguments_at_least, get_arguments_exact};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::callables::{cost_input_sized_vararg, CallableType, NativeHandle};
@@ -580,7 +581,9 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
     if args.len() < 2 {
         Ok(Value::Bool(true))
     } else {
-        let first = &args[0];
+        let first = args.first().ok_or_else(|| {
+            CheckErrors::Expects("Checked arg len, but found no first element".into())
+        })?;
         // check types:
         let mut arg_type = TypeSignature::type_of(first)?;
         for x in args.iter() {
@@ -629,17 +632,18 @@ fn special_if(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
+    let [conditional, t_branch, f_branch] = get_arguments_exact(args)?;
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::If, env, 0)?;
     // handle the conditional clause.
-    let conditional = eval(&args[0], env, context)?;
+    let conditional = eval(conditional, env, context)?;
     match conditional {
         Value::Bool(result) => {
             if result {
-                eval(&args[1], env, context)
+                eval(t_branch, env, context)
             } else {
-                eval(&args[2], env, context)
+                eval(f_branch, env, context)
             }
         }
         _ => Err(CheckErrors::TypeValueError(
@@ -655,18 +659,18 @@ fn special_asserts(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    let [conditional, thrown] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::Asserts, env, 0)?;
     // handle the conditional clause.
-    let conditional = eval(&args[0], env, context)?;
+    let conditional = eval(conditional, env, context)?;
 
     match conditional {
         Value::Bool(result) => {
             if result {
                 Ok(conditional)
             } else {
-                let thrown = eval(&args[1], env, context)?;
+                let thrown = eval(thrown, env, context)?;
                 Err(ShortReturnType::AssertionFailed(Box::new(thrown)).into())
             }
         }
@@ -694,20 +698,18 @@ where
                 binding,
             )
         })?;
-        if binding_expression.len() != 2 {
-            return Err((
+        let [var_name, var_sexp]: &[_; 2] = binding_expression.try_into().map_err(|_| {
+            (
                 SyntaxBindingError::InvalidLength(binding_error_type, i).into(),
                 binding,
             )
-                .into());
-        }
-        let var_name = binding_expression[0].match_atom().ok_or_else(|| {
+        })?;
+        let var_name = var_name.match_atom().ok_or_else(|| {
             (
                 SyntaxBindingError::NotAtom(binding_error_type, i).into(),
-                &binding_expression[0],
+                var_name,
             )
         })?;
-        let var_sexp = &binding_expression[1];
 
         handler(var_name, var_sexp)?;
     }
@@ -737,9 +739,14 @@ fn special_let(
     // arg0 => binding list
     // arg1..n => body
     check_arguments_at_least(2, args)?;
+    let ([bindings], rest) = get_arguments_at_least(args).map_err(|_| {
+        CheckErrors::Expects(
+            "Checked for at least two arguments, but failed to get at least one argument".into(),
+        )
+    })?;
 
     // parse and eval the bindings.
-    let bindings = args[0].match_list().ok_or(CheckErrors::BadLetSyntax)?;
+    let bindings = bindings.match_list().ok_or(CheckErrors::BadLetSyntax)?;
 
     runtime_cost(ClarityCostFunction::Let, env, bindings.len())?;
 
@@ -772,7 +779,7 @@ fn special_let(
 
         // evaluate the let-bodies
         let mut last_result = None;
-        for body in args[1..].iter() {
+        for body in rest.iter() {
             let body_result = eval(body, env, &inner_context)?;
             last_result.replace(body_result);
         }
@@ -788,7 +795,7 @@ fn special_as_contract(
 ) -> Result<Value> {
     // (as-contract (..))
     // arg0 => body
-    check_argument_count(1, args)?;
+    let [body] = get_arguments_exact(args)?;
 
     // in epoch 2.1 and later, this has a cost
     if *env.epoch() >= StacksEpochId::Epoch21 {
@@ -801,7 +808,7 @@ fn special_as_contract(
     let contract_principal = env.contract_context.contract_identifier.clone().into();
     let mut nested_env = env.nest_as_principal(contract_principal);
 
-    let result = eval(&args[0], &mut nested_env, context);
+    let result = eval(body, &mut nested_env, context);
 
     env.drop_memory(cost_constants::AS_CONTRACT_MEMORY)?;
 
@@ -815,11 +822,11 @@ fn special_contract_of(
 ) -> Result<Value> {
     // (contract-of (..))
     // arg0 => trait
-    check_argument_count(1, args)?;
+    let [trait_arg] = get_arguments_exact(args)?;
 
     runtime_cost(ClarityCostFunction::ContractOf, env, 0)?;
 
-    let contract_ref = match &args[0].expr {
+    let contract_ref = match &trait_arg.expr {
         SymbolicExpressionType::Atom(contract_ref) => contract_ref,
         _ => return Err(CheckErrors::ContractOfExpectsTrait.into()),
     };
